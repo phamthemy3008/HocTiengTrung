@@ -21,6 +21,10 @@ import {
   Check,
   Award,
   BookOpen,
+  Layers,
+  Flame,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Card, Deck, StudyMode, PronunciationEvaluation, SyllableDetail, PhoneticMistake } from '../types';
 import { HanziCanvas } from './HanziCanvas';
@@ -47,9 +51,18 @@ export const StudySession: React.FC<StudySessionProps> = ({
   onOpenGuide,
 }) => {
   const currentDeckSelectId = useId();
+  const studyModeSelectId = useId();
 
-  // Active Main Tab: 'writing' (Tập viết) vs 'reading' (Luyện đọc & Phát âm)
-  const [activeTab, setActiveTab] = useState<'writing' | 'reading'>('writing');
+  // Study Mode:
+  // 'vietnamese_to_writing': Nhớ Viết (Hiển thị Nghĩa Việt, người học nhớ và luyện viết chữ Hán)
+  // 'hanzi_to_meaning': Nhớ Nghĩa & Đọc (Hiển thị chữ Hán, người học nhớ nghĩa & luyện phát âm)
+  // 'random': Toàn diện / Ngẫu nhiên luân phiên
+  const [studyMode, setStudyMode] = useState<StudyMode>('vietnamese_to_writing');
+
+  // Active Sheet inside the single unified study card:
+  // 'writing': Sheet 1 - Tập viết chữ Hán (Hanzi Canvas)
+  // 'reading': Sheet 2 - Luyện đọc & Phát âm AI (Speech Recognition & Evaluation)
+  const [activeSheet, setActiveSheet] = useState<'writing' | 'reading'>('writing');
 
   // Selected Tags for filtering study session (multi-selection)
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -102,10 +115,12 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isFlipped, setIsFlipped] = useState<boolean>(false);
   const [showWritingHint, setShowWritingHint] = useState<boolean>(false);
+  const [showReadingPinyin, setShowReadingPinyin] = useState<boolean>(false);
+  const [showMeaning, setShowMeaning] = useState<boolean>(false);
   const [sessionCompleted, setSessionCompleted] = useState<boolean>(false);
   const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
 
-  // Pronunciation check states (Exact model from attached screenshot)
+  // Pronunciation check states (Matching attached screenshot format)
   const [isListening, setIsListening] = useState<boolean>(false);
   const [micTranscript, setMicTranscript] = useState<string>('');
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
@@ -135,6 +150,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setStudyQueue(sorted);
     setCurrentIndex(0);
     setIsFlipped(false);
+    setShowWritingHint(false);
+    setShowReadingPinyin(false);
+    setShowMeaning(false);
     setSessionCompleted(false);
     setEvalResult(null);
     setMicTranscript('');
@@ -174,269 +192,324 @@ export const StudySession: React.FC<StudySessionProps> = ({
     audio.play().catch(() => setIsPlayingRecordedAudio(false));
   };
 
-  // Flip card
+  // Flip card / reveal answer
   const handleFlipCard = () => {
     if (!isFlipped) {
       setIsFlipped(true);
-      if (currentCard?.hanzi) {
-        handlePlayAudio(currentCard.hanzi);
-      }
+      setShowMeaning(true);
+      setShowReadingPinyin(true);
+      handlePlayAudio(currentCard?.hanzi);
     }
   };
 
-  // Record SRS Review rating
+  // Automatic 100% writing completion handler (Requirement 3)
+  const handleWriting100PercentComplete = async () => {
+    if (!currentCard || autoAdvanceCountdown !== null) return;
+
+    // Confetti celebration
+    confetti({
+      particleCount: 70,
+      spread: 60,
+      origin: { y: 0.65 },
+      colors: ['#b91c1c', '#f59e0b', '#10b981', '#3b82f6'],
+    });
+
+    // Auto record SM-2 rating 4 (Dễ / Perfect)
+    await onRecordReview(currentCard, 4, 'writing');
+
+    // Auto advance countdown (1.2s)
+    setAutoAdvanceCountdown(1);
+
+    autoAdvanceTimerRef.current = setTimeout(() => {
+      setAutoAdvanceCountdown(null);
+      if (currentIndex < studyQueue.length - 1) {
+        setCurrentIndex((prev) => prev + 1);
+        setIsFlipped(false);
+        setShowWritingHint(false);
+        setShowReadingPinyin(false);
+        setShowMeaning(false);
+        setEvalResult(null);
+        setMicTranscript('');
+        setRecordedAudioUrl(null);
+      } else {
+        setSessionCompleted(true);
+      }
+    }, 1200);
+  };
+
+  // Manual rating handler
   const handleRate = async (rating: 1 | 2 | 3 | 4) => {
     if (!currentCard) return;
+
     if (autoAdvanceTimerRef.current) {
       clearTimeout(autoAdvanceTimerRef.current);
-      autoAdvanceTimerRef.current = null;
-    }
-    setAutoAdvanceCountdown(null);
-
-    await onRecordReview(currentCard, rating, activeTab === 'writing' ? 'vietnamese_to_writing' : 'hanzi_to_meaning');
-
-    // If rated 1 (Again), push to the end of current session
-    if (rating === 1) {
-      setStudyQueue((prev) => [...prev, currentCard]);
+      setAutoAdvanceCountdown(null);
     }
 
-    if (currentIndex + 1 < studyQueue.length) {
+    await onRecordReview(currentCard, rating, activeSheet);
+
+    if (currentIndex < studyQueue.length - 1) {
       setCurrentIndex((prev) => prev + 1);
       setIsFlipped(false);
       setShowWritingHint(false);
+      setShowReadingPinyin(false);
+      setShowMeaning(false);
       setEvalResult(null);
       setMicTranscript('');
       setRecordedAudioUrl(null);
     } else {
       setSessionCompleted(true);
-      try {
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#b91c1c', '#d97706', '#059669', '#2563eb'],
-        });
-      } catch {}
     }
   };
 
-  // Auto-advance when writing completes 100% (Requirement 3)
-  const handleWriting100PercentComplete = () => {
-    if (!currentCard) return;
-    setIsFlipped(true);
-    setAutoAdvanceCountdown(1);
-
-    // Confetti celebration
-    try {
-      confetti({
-        particleCount: 60,
-        spread: 60,
-        origin: { y: 0.6 },
-        colors: ['#059669', '#10b981', '#34d399', '#d97706'],
-      });
-    } catch {}
-
-    // Auto advance after 1.1s with Rating 3 (Good)
-    autoAdvanceTimerRef.current = setTimeout(() => {
-      handleRate(3);
-    }, 1100);
-  };
-
-  // Start voice recognition & audio recording for Pronunciation Check
+  // Toggle Voice Recording with Gemini AI Pronunciation Check
   const handleToggleVoiceRecord = async () => {
     if (isListening) {
       // Stop recording
-      voiceRecorderRef.current?.stop();
+      if (voiceRecorderRef.current) {
+        voiceRecorderRef.current.stop();
+      }
       if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
         audioRecorderRef.current.stop();
       }
       setIsListening(false);
-      const textToEvaluate = micTranscriptRef.current || micTranscript;
-      if (textToEvaluate.trim()) {
-        evaluateAudioWithAi(textToEvaluate.trim());
-      }
       return;
     }
 
-    // Start Audio Recorder (MediaRecorder) for user playback
+    if (!currentCard) return;
+
+    setIsListening(true);
+    setMicTranscript('');
+    micTranscriptRef.current = '';
+    setEvalResult(null);
+    audioChunksRef.current = [];
+
+    // 1. Capture user microphone for playback
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
       const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
+      audioRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
       };
+
       mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const url = URL.createObjectURL(blob);
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const url = URL.createObjectURL(audioBlob);
         setRecordedAudioUrl(url);
         stream.getTracks().forEach((track) => track.stop());
       };
+
       mediaRecorder.start();
-      audioRecorderRef.current = mediaRecorder;
-    } catch (micErr) {
-      console.warn('Microphone permission notice:', micErr);
+    } catch (err) {
+      console.warn('Microphone stream access notice:', err);
     }
 
-    micTranscriptRef.current = '';
-    setMicTranscript('');
-    setEvalResult(null);
-    setIsListening(true);
-
-    if (!speechService.isRecognitionSupported()) {
-      setIsListening(false);
-      // Generate AI evaluation simulation if Web Speech is unsupported
-      evaluateAudioWithAi(currentCard?.hanzi || '');
-      return;
-    }
-
-    const recorder = speechService.startListening(
-      (transcript, isFinal) => {
-        micTranscriptRef.current = transcript;
+    // 2. Speech recognition listener
+    const { stop: stopFn } = speechService.startListening(
+      async (transcript: string, isFinal: boolean) => {
         setMicTranscript(transcript);
+        micTranscriptRef.current = transcript;
+
         if (isFinal) {
+          setIsListening(false);
           if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
             audioRecorderRef.current.stop();
           }
-          setIsListening(false);
-          evaluateAudioWithAi(transcript);
+
+          // Evaluate with Gemini backend API
+          setIsEvaluating(true);
+          try {
+            const res = await fetch('/api/evaluate-pronunciation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                targetHanzi: currentCard.hanzi,
+                targetPinyin: currentCard.pinyin,
+                recognizedText: transcript,
+              }),
+            });
+
+            if (res.ok) {
+              const data: PronunciationEvaluation = await res.json();
+              setEvalResult(data);
+              if (data.isCorrect || data.accuracyScore >= 80) {
+                confetti({
+                  particleCount: 50,
+                  spread: 50,
+                  origin: { y: 0.7 },
+                  colors: ['#10b981', '#3b82f6', '#f59e0b'],
+                });
+              }
+            } else {
+              // Fallback heuristic evaluation
+              const isMatch = transcript.includes(currentCard.hanzi);
+              setEvalResult({
+                accuracyScore: isMatch ? 90 : 65,
+                pronunciationScore: isMatch ? 92 : 68,
+                toneScore: isMatch ? 88 : 60,
+                recognizedText: transcript,
+                toneFeedback: isMatch ? 'Phát âm tốt!' : 'Cần nhấn đúng thanh điệu hơn.',
+                tips: 'Luyện tập theo người bản xứ.',
+                isCorrect: isMatch,
+                syllableDetails: currentCard.hanzi.split('').map((char, i) => ({
+                  char,
+                  pinyin: (currentCard.pinyin || '').split(/\s+/)[i] || '',
+                  score: isMatch ? 92 : 65,
+                  status: isMatch ? 'perfect' : 'good',
+                })),
+              });
+            }
+          } catch {
+            const isMatch = transcript.includes(currentCard.hanzi);
+            setEvalResult({
+              accuracyScore: isMatch ? 90 : 65,
+              pronunciationScore: isMatch ? 92 : 68,
+              toneScore: isMatch ? 88 : 60,
+              recognizedText: transcript,
+              toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần phát âm rõ ràng hơn.',
+              tips: 'Hãy nghe kỹ âm chuẩn bản xứ trước khi đọc.',
+              isCorrect: isMatch,
+            });
+          } finally {
+            setIsEvaluating(false);
+          }
         }
       },
-      (err) => {
-        console.warn('Speech recognition notice:', err);
+      (error: any) => {
+        setIsListening(false);
+        setIsEvaluating(false);
         if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
           audioRecorderRef.current.stop();
         }
-        setIsListening(false);
+        console.warn('Speech recognition notice:', error);
       }
     );
 
-    voiceRecorderRef.current = recorder;
+    voiceRecorderRef.current = { stop: stopFn };
   };
 
-  // Call server/AI to evaluate pronunciation
-  const evaluateAudioWithAi = async (spokenText: string) => {
-    if (!currentCard || !spokenText.trim()) return;
-    setIsEvaluating(true);
-    try {
-      const res = await fetch('/api/evaluate-pronunciation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetHanzi: currentCard.hanzi,
-          targetPinyin: currentCard.pinyin,
-          recognizedText: spokenText,
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.evaluation) {
-        setEvalResult(data.evaluation);
-        if (data.evaluation.accuracyScore >= 80) {
-          confetti({
-            particleCount: 40,
-            spread: 55,
-            origin: { y: 0.6 },
-            colors: ['#059669', '#10b981', '#3b82f6'],
-          });
-        }
+  // Keyboard navigation shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleFlipCard();
+      } else if (e.key === '1') {
+        handleRate(1);
+      } else if (e.key === '2') {
+        handleRate(2);
+      } else if (e.key === '3') {
+        handleRate(3);
+      } else if (e.key === '4') {
+        handleRate(4);
+      } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'v') {
+        handlePlayAudio();
       }
-    } catch (e) {
-      console.warn('Pronunciation evaluation fallback:', e);
-      const isMatch = spokenText.trim().toLowerCase() === currentCard.hanzi.trim().toLowerCase();
-      const chars = currentCard.hanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
-      const pinyins = (currentCard.pinyin || '').split(/\s+/);
-      setEvalResult({
-        accuracyScore: isMatch ? 88 : 72,
-        pronunciationScore: isMatch ? 90 : 75,
-        toneScore: isMatch ? 86 : 70,
-        recognizedText: spokenText,
-        toneFeedback: isMatch ? 'Phát âm chuẩn xác!' : `Âm nhận diện: "${spokenText}". Chú ý thanh điệu ${currentCard.pinyin}.`,
-        tips: 'Hãy lắng nghe phát âm chuẩn của người bản ngữ và thử lại.',
-        isCorrect: isMatch,
-        syllableDetails: chars.map((char, i) => ({
-          char,
-          pinyin: pinyins[i] || '',
-          score: isMatch ? 88 : 72,
-          status: isMatch ? 'perfect' : 'good',
-        })),
-        mistakeList: isMatch
-          ? []
-          : [
-              {
-                code: 'Âm điệu',
-                reason: `Âm nhận diện: "${spokenText}". Cần lưu ý thanh điệu của "${currentCard.pinyin}".`,
-              },
-            ],
-      });
-    } finally {
-      setIsEvaluating(false);
-    }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentIndex, isFlipped, currentCard, studyQueue, activeSheet]);
+
+  // Restart completed session
+  const handleRestart = () => {
+    setCurrentIndex(0);
+    setSessionCompleted(false);
+    setIsFlipped(false);
+    setShowWritingHint(false);
+    setShowReadingPinyin(false);
+    setShowMeaning(false);
+    setEvalResult(null);
+    setMicTranscript('');
+    setRecordedAudioUrl(null);
+    setAutoAdvanceCountdown(null);
   };
 
-  const restartSession = () => {
-    if (deckCards.length > 0) {
-      setStudyQueue([...deckCards]);
-      setCurrentIndex(0);
-      setIsFlipped(false);
-      setSessionCompleted(false);
-      setEvalResult(null);
-      setMicTranscript('');
-      setRecordedAudioUrl(null);
-    }
+  // Shuffle queue
+  const handleShuffle = () => {
+    const shuffled = [...studyQueue].sort(() => Math.random() - 0.5);
+    setStudyQueue(shuffled);
+    setCurrentIndex(0);
+    setIsFlipped(false);
+    setShowWritingHint(false);
+    setShowReadingPinyin(false);
+    setShowMeaning(false);
+    setEvalResult(null);
+    setMicTranscript('');
+    setRecordedAudioUrl(null);
+    setAutoAdvanceCountdown(null);
   };
 
-  // If no cards in selected deck
+  // Empty state if no cards in deck
   if (deckCards.length === 0) {
     return (
-      <div className="max-w-xl mx-auto py-16 px-4 text-center animate-in fade-in">
-        <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mb-4">
+      <div className="max-w-2xl mx-auto px-4 py-12 text-center space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-full bg-red-50 text-red-700 flex items-center justify-center">
           <BookA className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-bold text-stone-900 mb-2">Chưa có từ vựng nào trong bộ này</h2>
-        <p className="text-sm text-stone-600 mb-6 leading-relaxed">
-          Hãy thêm từ vựng mới, nhập danh sách từ file Anki/CSV hoặc chụp ảnh tài liệu qua camera để tự động tạo flashcard.
+        <h2 className="text-xl font-bold text-stone-900">Bộ từ vựng này chưa có thẻ học</h2>
+        <p className="text-stone-500 text-xs max-w-md mx-auto">
+          {selectedTags.length > 0
+            ? 'Không tìm thấy từ vựng nào khớp với các Tag đã chọn. Hãy bỏ lọc tag để xem các từ khác.'
+            : 'Hãy thêm từ vựng mới hoặc chuyển sang bộ từ HSK hệ thống để bắt đầu ôn luyện.'}
         </p>
-        <button
-          type="button"
-          onClick={onNavigateToDecks}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white font-medium text-sm shadow-xs transition-colors"
-        >
-          <span>Quản lý & Thêm Từ Vựng</span>
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          {selectedTags.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearTags}
+              className="px-4 py-2 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xl transition-colors"
+            >
+              Bỏ lọc Tag
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onNavigateToDecks}
+            className="px-5 py-2 text-xs font-semibold bg-red-700 hover:bg-red-800 text-white rounded-xl shadow-2xs transition-colors"
+          >
+            Quản Lý Bộ Từ
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Session completed view
+  // Session Completed Summary Screen
   if (sessionCompleted) {
     return (
-      <div className="max-w-lg mx-auto py-12 px-4 text-center animate-in fade-in">
-        <div className="w-20 h-20 mx-auto rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mb-5 shadow-xs border-2 border-emerald-200">
-          <CheckCircle2 className="w-10 h-10" />
+      <div className="max-w-md mx-auto px-4 py-10 text-center space-y-6 animate-in fade-in">
+        <div className="w-20 h-20 mx-auto rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center shadow-xs">
+          <Award className="w-10 h-10" />
         </div>
-        <h2 className="text-2xl font-bold text-stone-900 mb-2">Hoàn thành phiên ôn tập!</h2>
-        <p className="text-stone-600 text-sm mb-6 leading-relaxed">
-          Bạn vừa hoàn thành ôn tập <strong>{studyQueue.length}</strong> từ vựng. Thuật toán Spaced Repetition (SM-2) đã tự động lập lịch ngày ôn tối ưu cho từng từ.
-        </p>
-
-        <div className="flex items-center justify-center gap-3">
+        <div className="space-y-1.5">
+          <h2 className="text-2xl font-bold text-stone-900">Hoàn Thành Buổi Ôn Tập!</h2>
+          <p className="text-xs text-stone-600">
+            Bạn đã ôn tập xong <strong>{studyQueue.length}</strong> từ vựng. Thuật toán Spaced Repetition (SM-2) đã lên lịch nhắc lại thời điểm vàng tiếp theo cho bạn.
+          </p>
+        </div>
+        <div className="flex items-center justify-center gap-3 pt-2">
           <button
             type="button"
-            onClick={restartSession}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-medium text-sm transition-colors shadow-xs"
+            onClick={handleRestart}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition-colors"
           >
-            <RefreshCw className="w-4 h-4" />
-            <span>Ôn lại lần nữa</span>
+            <RotateCw className="w-4 h-4" />
+            <span>Ôn Lại Bộ Này</span>
           </button>
           <button
             type="button"
             onClick={onNavigateToDecks}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium text-sm border border-stone-200 transition-colors"
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-semibold shadow-2xs transition-colors"
           >
-            <span>Xem danh sách từ</span>
+            <span>Chọn Bộ Từ Khác</span>
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -444,90 +517,83 @@ export const StudySession: React.FC<StudySessionProps> = ({
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
-      {/* Session Controls Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-stone-200/70">
-        {/* Deck Selector */}
-        <div className="flex items-center gap-2">
-          <label htmlFor={currentDeckSelectId} className="text-xs text-stone-500 font-medium">Bộ từ:</label>
-          <select
-            id={currentDeckSelectId}
-            value={currentDeckId}
-            onChange={(e) => setCurrentDeckId(e.target.value)}
-            className="text-xs font-semibold bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-800 focus:outline-none focus:ring-1 focus:ring-red-600"
-          >
-            <option value="all">Tất cả bộ từ ({cards.length})</option>
-            {decks.some((d) => d.isSystem) && (
-              <optgroup label="🌟 BỘ TỪ MẶC ĐỊNH HỆ THỐNG">
-                {decks
-                  .filter((d) => d.isSystem)
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title} ({d.cardCount})
-                    </option>
-                  ))}
-              </optgroup>
-            )}
-            {decks.some((d) => !d.isSystem) && (
-              <optgroup label="👤 BỘ TỪ CÁ NHÂN CỦA BẠN">
-                {decks
-                  .filter((d) => !d.isSystem)
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title} ({d.cardCount})
-                    </option>
-                  ))}
-              </optgroup>
-            )}
-          </select>
+    <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
+      {/* Top Controls Bar: Deck Selector, Study Mode & Actions */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3.5 bg-white rounded-2xl border border-stone-200 shadow-2xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Deck Select Dropdown */}
+          <div className="flex items-center gap-2">
+            <label htmlFor={currentDeckSelectId} className="text-xs font-semibold text-stone-500 shrink-0">
+              Bộ từ:
+            </label>
+            <select
+              id={currentDeckSelectId}
+              value={currentDeckId}
+              onChange={(e) => {
+                setCurrentDeckId(e.target.value);
+                setSelectedTags([]);
+              }}
+              className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+            >
+              <option value="all">Tất cả bộ từ ({cards.length} từ)</option>
+              {decks.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.title} ({cards.filter((c) => c.deckId === d.id).length} từ)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Study Mode Selector (CHẾ ĐỘ HỌC) */}
+          <div className="flex items-center gap-2">
+            <label htmlFor={studyModeSelectId} className="text-xs font-semibold text-stone-500 shrink-0">
+              Chế độ:
+            </label>
+            <select
+              id={studyModeSelectId}
+              value={studyMode}
+              onChange={(e) => {
+                const newMode = e.target.value as StudyMode;
+                setStudyMode(newMode);
+                if (newMode === 'vietnamese_to_writing') {
+                  setActiveSheet('writing');
+                } else if (newMode === 'hanzi_to_meaning') {
+                  setActiveSheet('reading');
+                }
+              }}
+              className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
+            >
+              <option value="vietnamese_to_writing">✍️ Nhớ Viết (Việt → Viết Hán)</option>
+              <option value="hanzi_to_meaning">🗣️ Nhớ Nghĩa & Đọc (Hán → Nghĩa)</option>
+              <option value="random">🔀 Toàn Diện (Ngẫu Nhiên)</option>
+            </select>
+          </div>
         </div>
 
-        {/* 2 MAIN SEPARATE TABS: Requirement 8 (Tập Viết vs Luyện Đọc) */}
-        <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-xl border border-stone-200/80 shadow-2xs">
+        {/* Actions (Shuffle & Guide) */}
+        <div className="flex items-center gap-2 justify-end">
           <button
             type="button"
-            onClick={() => {
-              setActiveTab('writing');
-              setShowWritingHint(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'writing'
-                ? 'bg-white text-stone-900 shadow-2xs'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
+            onClick={handleShuffle}
+            className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1 text-xs"
+            title="Trộn ngẫu nhiên thứ tự từ vựng"
           >
-            <PenTool className="w-3.5 h-3.5 text-amber-700" />
-            <span>✍️ Luyện Viết</span>
+            <Shuffle className="w-4 h-4" />
+            <span className="hidden sm:inline">Trộn ngẫu nhiên</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('reading');
-              setIsFlipped(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'reading'
-                ? 'bg-white text-stone-900 shadow-2xs'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Mic className="w-3.5 h-3.5 text-red-700" />
-            <span>🗣️ Luyện Đọc & Phát Âm</span>
-          </button>
+          {onOpenGuide && (
+            <button
+              type="button"
+              onClick={onOpenGuide}
+              className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1 text-xs"
+              title="Hướng dẫn sử dụng"
+            >
+              <HelpCircle className="w-4 h-4 text-amber-700" />
+              <span className="hidden sm:inline">Hướng dẫn</span>
+            </button>
+          )}
         </div>
-
-        {/* User Guide Button */}
-        {onOpenGuide && (
-          <button
-            type="button"
-            onClick={onOpenGuide}
-            className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors"
-            title="Hướng dẫn sử dụng"
-          >
-            <HelpCircle className="w-4 h-4 text-amber-700" />
-          </button>
-        )}
       </div>
 
       {/* Tag / Lesson Filter Pills */}
@@ -590,44 +656,101 @@ export const StudySession: React.FC<StudySessionProps> = ({
         </div>
       )}
 
-      {/* MAIN FLASHCARD CARD */}
+      {/* =========================================================================
+          UNIFIED 1-DIV CONTAINER (GỘP ĐỌC VÀ VIẾT VÀO 1 CARD CÓ 2 SHEET)
+         ========================================================================= */}
       {currentCard && (
-        <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden transition-all">
-          {/* =========================================================================
-              TAB 1: TẬP VIẾT (Writing Mode)
-              - Phần viết (米字格 HanziCanvas) được ưu tiên đưa lên trên
-              - Viết đúng 100% tự động chuyển sang từ mới (Req 3)
-              - Vị trí số từ 1 / 334 đặt gần Nghĩa Tiếng Việt (Req 2)
-             ========================================================================= */}
-          {activeTab === 'writing' && (
-            <div className="p-5 sm:p-7 space-y-5 animate-in fade-in">
-              {/* Top: Character Writing Canvas */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-amber-900 bg-amber-100/80 px-2.5 py-0.5 rounded-full border border-amber-200">
-                      ✍️ Chế Độ Tập Viết
-                    </span>
-                    <span className="text-xs text-stone-400">
-                      {currentCard.status === 'new' ? 'Từ mới' : `Ôn tập (${currentCard.repetitions} lần)`}
-                    </span>
-                  </div>
+        <div className="bg-white rounded-3xl border border-stone-200 shadow-sm p-5 sm:p-7 space-y-5 animate-in fade-in transition-all">
+          {/* Card Header: Overall Word Counter + 2 Sheets Switcher Pills & Native Audio */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
+            {/* Left side: Overall word position badge ("Từ 1 / 334") + 2 Sheets Toggle Tabs */}
+            <div className="flex items-center flex-wrap gap-2.5">
+              {/* REQUIREMENT: Đưa phần 1 / 334 từ ra ngoài gần phần tiêu đề sheet */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 text-red-900 border border-red-200/80 font-bold text-xs shadow-2xs">
+                <span className="text-[11px] font-semibold text-red-600 uppercase tracking-wide">Từ</span>
+                <span className="font-mono text-sm text-red-700">{currentIndex + 1}</span>
+                <span className="text-red-400 font-normal">/</span>
+                <span className="font-mono text-stone-600">{studyQueue.length}</span>
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handlePlayAudio(currentCard.hanzi)}
-                    className="p-1.5 text-stone-500 hover:text-red-700 rounded-lg hover:bg-stone-100 transition-colors flex items-center gap-1 text-xs font-semibold"
-                    title="Nghe phát âm chuẩn"
-                  >
-                    <Volume2 className="w-4 h-4 text-red-700" />
-                    <span>Nghe mẫu</span>
-                  </button>
+              {/* 2 Sheets Toggle Tabs */}
+              <div className="flex items-center p-1 bg-stone-100 rounded-2xl border border-stone-200/80">
+                <button
+                  type="button"
+                  onClick={() => setActiveSheet('writing')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activeSheet === 'writing'
+                      ? 'bg-white text-stone-900 shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <PenTool className="w-3.5 h-3.5 text-amber-700" />
+                  <span>✍️ Sheet 1: Luyện Viết</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveSheet('reading')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activeSheet === 'reading'
+                      ? 'bg-white text-stone-900 shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <Mic className="w-3.5 h-3.5 text-red-700" />
+                  <span>🗣️ Sheet 2: Luyện Đọc & Phát Âm</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right side: Listen Standard Voice Button */}
+            <button
+              type="button"
+              onClick={() => handlePlayAudio(currentCard.hanzi)}
+              className="p-2 text-stone-500 hover:text-red-700 rounded-xl hover:bg-stone-50 transition-colors flex items-center gap-1.5 text-xs font-semibold shrink-0 self-start sm:self-auto"
+              title="Nghe phát âm chuẩn người bản xứ"
+            >
+              <Volume2 className="w-4 h-4 text-red-700" />
+              <span className="hidden sm:inline">Phát âm chuẩn</span>
+            </button>
+          </div>
+
+          {/* =========================================================================
+              SHEET 1: TẬP VIẾT CHỮ HÁN (Hanzi Canvas & Stroke Practice)
+             ========================================================================= */}
+          {activeSheet === 'writing' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="bg-[#faf9f5] p-4 rounded-3xl border border-stone-200/90 space-y-3">
+                {/* Writing Hint Toggle (Gợi ý mặt chữ khi tập viết) */}
+                <div className="flex items-center justify-between pb-1 border-b border-stone-200/60 text-xs">
+                  <span className="font-semibold text-stone-600">Ô tập viết chữ Mễ (米字格)</span>
+                  {!showWritingHint ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowWritingHint(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg transition-all"
+                    >
+                      <Lightbulb className="w-3 h-3 text-amber-700" />
+                      <span>💡 Gợi ý mặt chữ</span>
+                    </button>
+                  ) : (
+                    <div className="inline-flex items-center gap-2">
+                      <span className="font-hanzi font-bold text-stone-900 text-sm">{currentCard.hanzi}</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowWritingHint(false)}
+                        className="text-[10px] text-stone-500 hover:text-stone-800 underline"
+                      >
+                        Ẩn
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Calligraphy Writing Canvas (米字格) placed on TOP */}
+                {/* Calligraphy Writing Canvas (米字格) */}
                 <div className="py-2 flex justify-center">
                   <HanziCanvas
-                    key={`canvas-writing-${currentCard.id}`}
+                    key={`canvas-unified-${currentCard.id}`}
                     targetHanzi={currentCard.hanzi}
                     showGhostByDefault={false}
                     hideCharacterPrompt={!showWritingHint}
@@ -639,189 +762,30 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   />
                 </div>
 
-                {/* Auto-advance banner indicator */}
+                {/* Auto-advance countdown notification */}
                 {autoAdvanceCountdown !== null && (
                   <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold flex items-center justify-between animate-bounce">
                     <span className="flex items-center gap-1.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Xuất sắc! Đã viết đúng 100% — Đang tự động chuyển từ tiếp theo...</span>
+                      <span>Xuất sắc! Viết đúng 100% — Tự động chuyển từ tiếp theo...</span>
                     </span>
-                    <span className="text-[11px] text-emerald-700">✓ Tự động SM-2</span>
+                    <span className="text-[11px] text-emerald-700">✓ SM-2 5 sao</span>
                   </div>
                 )}
               </div>
-
-              {/* Middle Section: Vietnamese Meaning + Card Counter "1 / 334" (Requirement 2) */}
-              <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-2">
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
-                    Nghĩa Tiếng Việt
-                  </span>
-
-                  {/* REQUIREMENT 2: Số từ đã học vd 1 / 334 chuyển xuống chỗ gần Nghĩa Tiếng Việt */}
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-stone-200 text-stone-800 border border-stone-300/80">
-                    <span>{currentIndex + 1}</span>
-                    <span className="text-stone-400">/</span>
-                    <span>{studyQueue.length}</span>
-                  </span>
-                </div>
-
-                <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
-                  {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
-                </h3>
-
-                {/* Hint Button if forgotten */}
-                <div className="pt-1 flex items-center justify-center">
-                  {!showWritingHint ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowWritingHint(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-full transition-all shadow-2xs"
-                    >
-                      <Lightbulb className="w-3.5 h-3.5 text-amber-600 fill-amber-400" />
-                      <span>Gợi ý mặt chữ Hán & Pinyin (nếu quên)</span>
-                    </button>
-                  ) : (
-                    <div className="inline-flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-300 rounded-2xl shadow-xs animate-in fade-in">
-                      <span className="font-hanzi font-bold text-2xl text-stone-900">
-                        {currentCard.hanzi}
-                      </span>
-                      <span className="text-sm font-semibold text-red-700 bg-white px-2 py-0.5 rounded-lg border border-red-200">
-                        {currentCard.pinyin}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowWritingHint(false)}
-                        className="text-[11px] font-medium text-stone-600 hover:text-stone-900 px-2 py-1 rounded-lg hover:bg-amber-200 transition-colors"
-                      >
-                        Ẩn
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Revealed / Flipped info */}
-              {isFlipped && (
-                <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-3 animate-in fade-in">
-                  <div className="text-center">
-                    <div className="text-3xl font-hanzi font-bold text-stone-900">{currentCard.hanzi}</div>
-                    <div className="text-base font-semibold text-red-700 mt-0.5">{currentCard.pinyin}</div>
-                  </div>
-
-                  {currentCard.exampleSentence && (
-                    <div className="p-3 bg-white rounded-xl border border-stone-200 text-xs space-y-1">
-                      <div className="flex items-center justify-between text-stone-500 font-semibold">
-                        <span>Câu ví dụ:</span>
-                        <button
-                          type="button"
-                          onClick={() => handlePlayAudio(currentCard.exampleSentence)}
-                          className="p-1 hover:text-red-700"
-                        >
-                          <Volume2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <p className="font-hanzi font-semibold text-stone-900 text-sm">{currentCard.exampleSentence}</p>
-                      {currentCard.examplePinyin && <p className="text-stone-500">{currentCard.examplePinyin}</p>}
-                      {currentCard.exampleMeaning && <p className="text-stone-600 italic">{currentCard.exampleMeaning}</p>}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Manual SM-2 Rating Controls (for user override or when flipped) */}
-              {isFlipped && (
-                <div className="pt-2 border-t border-stone-200/70 space-y-2">
-                  <div className="text-center text-xs text-stone-500 font-medium">
-                    Đánh giá mức độ ghi nhớ (Spaced Repetition SM-2):
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleRate(1)}
-                      className="py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-colors"
-                    >
-                      <div>Quên</div>
-                      <div className="text-[10px] text-red-600 font-normal">1 ngày (Ôn lại)</div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRate(2)}
-                      className="py-2 px-3 rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-colors"
-                    >
-                      <div>Khó</div>
-                      <div className="text-[10px] text-orange-600 font-normal">
-                        {formatInterval(Math.max(1, Math.round((currentCard.interval || 1) * 1.2)))}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRate(3)}
-                      className="py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-colors"
-                    >
-                      <div>Tốt</div>
-                      <div className="text-[10px] text-emerald-600 font-normal">
-                        {formatInterval(
-                          currentCard.repetitions === 0
-                            ? 1
-                            : Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5))
-                        )}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRate(4)}
-                      className="py-2 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-colors"
-                    >
-                      <div>Dễ</div>
-                      <div className="text-[10px] text-blue-600 font-normal">
-                        {formatInterval(
-                          Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5) * 1.3)
-                        )}
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
           {/* =========================================================================
-              TAB 2: LUYỆN ĐỌC & PHÁT ÂM (Reading Mode)
-              - Giao diện và tính năng theo đúng hình ảnh đính kèm:
-                + Vòng tròn điểm tổng + 2 điểm: Phát âm & Thanh điệu kèm progress bar
-                + Chữ Hán to có gạch chân màu theo từng chữ + Pinyin + điểm số từng âm tiết
-                + Nghĩa tiếng Việt + số từ 1 / 334 ở gần (Req 2)
-                + Danh sách thẻ lỗi sai (g→w, ong→en, uo→u)
-                + Nút "▶ Bản ghi của bạn" & nút "🔊 [pinyin]"
-                + Nút Micro tròn lớn màu đen ở dưới
+              SHEET 2: LUYỆN ĐỌC & PHÁT ÂM AI (Speech Recognition & Evaluation)
+              - ẨN PINYIN ĐI, CHỈ HIỂN THỊ KHI BẤM NÚT HỖ TRỢ
              ========================================================================= */}
-          {activeTab === 'reading' && (
-            <div className="p-5 sm:p-7 space-y-6 animate-in fade-in">
-              {/* Header Title & Progress Bar */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-stone-500">
-                  <span className="font-bold text-stone-800 text-sm">Phát âm từ</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-stone-700">
-                      {currentIndex + 1}/{studyQueue.length}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Progress bar line */}
-                <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-red-700 rounded-full transition-all duration-300"
-                    style={{ width: `${((currentIndex + 1) / studyQueue.length) * 100}%` }}
-                  />
-                </div>
-              </div>
-
+          {activeSheet === 'reading' && (
+            <div className="space-y-4 animate-in fade-in">
               {/* TWO SCORES WIDGET: Âm và thanh điệu kèm lý do (As shown in screenshot) */}
-              <div className="bg-[#f7f6f2] p-4 sm:p-5 rounded-2xl border border-stone-200/80 flex items-center gap-5">
+              <div className="bg-[#f7f6f2] p-4 rounded-2xl border border-stone-200/80 flex items-center gap-4 sm:gap-6">
                 {/* Overall circular score */}
-                <div className="relative w-18 h-18 sm:w-20 sm:h-20 shrink-0 flex items-center justify-center">
+                <div className="relative w-16 h-16 sm:w-20 sm:h-20 shrink-0 flex items-center justify-center">
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
                     <path
                       className="text-stone-200"
@@ -847,14 +811,14 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-2xl sm:text-3xl font-bold text-stone-900 font-mono">
+                    <span className="text-xl sm:text-2xl font-bold text-stone-900 font-mono">
                       {evalResult ? evalResult.accuracyScore : '—'}
                     </span>
                   </div>
                 </div>
 
                 {/* 2 Detailed Scores: Phát âm & Thanh điệu */}
-                <div className="flex-1 space-y-3">
+                <div className="flex-1 space-y-2.5">
                   {/* Score 1: Phát âm */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-xs font-semibold text-stone-600">
@@ -889,75 +853,120 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 </div>
               </div>
 
-              {/* BIG HANZI DISPLAY: Characters with colored underline, pinyin and individual syllable scores */}
+              {/* BIG HANZI DISPLAY: Characters with colored underline, pinyin (HIDDEN BY DEFAULT) and individual syllable scores */}
               <div className="text-center py-2 space-y-3">
+                {/* Legend & Pinyin Support Toggle Button */}
+                <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-[11px] text-stone-500 pb-1 border-b border-stone-100">
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                      <strong className="text-emerald-800">Xanh:</strong> Đọc đúng
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+                      <strong className="text-red-800">Đỏ:</strong> Chưa đúng
+                    </span>
+                  </div>
+
+                  {/* REQUIREMENT: Nút hỗ trợ hiện/ẩn Pinyin trong phần luyện đọc */}
+                  {!showReadingPinyin ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowReadingPinyin(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-all shadow-2xs"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-amber-700" />
+                      <span>💡 Hiện Pinyin hỗ trợ</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowReadingPinyin(false)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold text-stone-600 hover:text-stone-900 bg-stone-100 border border-stone-200 transition-all"
+                    >
+                      <EyeOff className="w-3 h-3" />
+                      <span>Ẩn Pinyin</span>
+                    </button>
+                  )}
+                </div>
+
                 {/* Character syllables row */}
-                <div className="flex items-end justify-center gap-6 sm:gap-10">
+                <div className="flex items-end justify-center gap-6 sm:gap-10 pt-2">
                   {currentCard.hanzi.split('').map((char, idx) => {
                     const pinyinParts = (currentCard.pinyin || '').split(/\s+/);
                     const charPinyin = pinyinParts[idx] || '';
                     const sylDetail = evalResult?.syllableDetails?.[idx];
-                    const sylScore = sylDetail ? sylDetail.score : idx === 0 ? 37 : 80;
 
-                    // Underline color logic based on syllable accuracy
-                    const underlineColor =
-                      sylDetail?.status === 'perfect'
-                        ? 'border-emerald-500'
-                        : sylDetail?.status === 'good'
-                        ? 'border-amber-500'
-                        : sylDetail?.status === 'needs_work'
-                        ? 'border-red-500'
-                        : idx === 0
-                        ? 'border-red-400'
-                        : 'border-emerald-500';
+                    // Determine if this syllable was read correctly
+                    const hasEvaluated = !!evalResult;
+                    const isCorrectSyllable = hasEvaluated
+                      ? sylDetail?.status === 'perfect' ||
+                        sylDetail?.status === 'good' ||
+                        (sylDetail?.score !== undefined && sylDetail.score >= 70)
+                      : null;
 
-                    const textColor =
-                      sylDetail?.status === 'perfect'
+                    // Underline color: Xanh lá nếu đọc đúng, Đỏ nếu đọc sai, Xám nhẹ nếu chưa thu âm
+                    const underlineClass =
+                      isCorrectSyllable === true
+                        ? 'bg-emerald-500 shadow-xs'
+                        : isCorrectSyllable === false
+                        ? 'bg-red-500 shadow-xs ring-2 ring-red-200'
+                        : 'bg-stone-300';
+
+                    const textClass =
+                      isCorrectSyllable === true
                         ? 'text-emerald-700'
-                        : sylDetail?.status === 'good'
-                        ? 'text-amber-700'
-                        : sylDetail?.status === 'needs_work'
+                        : isCorrectSyllable === false
                         ? 'text-red-700'
-                        : idx === 0
-                        ? 'text-amber-700'
                         : 'text-stone-800';
+
+                    const charClass =
+                      isCorrectSyllable === true
+                        ? 'text-emerald-950 font-bold'
+                        : isCorrectSyllable === false
+                        ? 'text-red-950 font-bold'
+                        : 'text-stone-900';
 
                     return (
                       <div key={idx} className="flex flex-col items-center">
                         {/* Hanzi Character */}
-                        <div className="text-5xl sm:text-6xl font-hanzi font-bold text-stone-900 mb-2">
+                        <div className={`text-4xl sm:text-5xl font-hanzi mb-1.5 transition-colors ${charClass}`}>
                           {char}
                         </div>
 
-                        {/* Colored Underline (Matching Screenshot) */}
-                        <div className={`w-14 sm:w-18 border-b-4 ${underlineColor} rounded-full mb-1.5`} />
+                        {/* Colored Underline (Gạch xanh = Đọc đúng, Gạch đỏ = Đọc chưa chuẩn) */}
+                        <div className={`w-14 sm:w-18 h-1.5 rounded-full mb-1.5 transition-all duration-300 ${underlineClass}`} />
 
-                        {/* Pinyin */}
-                        <div className={`text-base sm:text-lg font-bold font-mono ${textColor}`}>
-                          {charPinyin}
-                        </div>
+                        {/* Pinyin (ẨN ĐI NẾU CHƯA ẤN NÚT HỖ TRỢ) */}
+                        {showReadingPinyin ? (
+                          <div className={`text-base sm:text-lg font-bold font-mono transition-colors animate-in fade-in ${textClass}`}>
+                            {charPinyin}
+                          </div>
+                        ) : (
+                          <div className="text-xs font-mono font-medium text-stone-300 py-1">
+                            ••••
+                          </div>
+                        )}
 
-                        {/* Syllable Score */}
-                        {evalResult && (
-                          <div className="text-xs font-mono font-semibold text-stone-400 mt-0.5">
-                            {sylDetail?.score ?? 80}
+                        {/* Syllable Accuracy Badge */}
+                        {hasEvaluated && (
+                          <div className="mt-1">
+                            {isCorrectSyllable ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold font-mono bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <span>✓</span>
+                                <span>{sylDetail?.score ?? 85}đ</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold font-mono bg-red-100 text-red-800 border border-red-300">
+                                <span>✗</span>
+                                <span>{sylDetail?.score ?? 45}đ</span>
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
                     );
                   })}
-                </div>
-
-                {/* Vietnamese meaning + Position Badge 1 / 334 (Requirement 2) */}
-                <div className="pt-2">
-                  <div className="text-base sm:text-lg font-bold text-stone-800 font-vietnamese">
-                    {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
-                  </div>
-                  <div className="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-stone-100 text-stone-600 border border-stone-200">
-                    <span>{currentIndex + 1}</span>
-                    <span className="text-stone-400">/</span>
-                    <span>{studyQueue.length} từ</span>
-                  </div>
                 </div>
               </div>
 
@@ -984,7 +993,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
               ) : null}
 
               {/* AUDIO CONTROLS (Play User Recording & Play Native Pronunciation) */}
-              <div className="flex items-center justify-center gap-3 pt-2">
+              <div className="flex items-center justify-center gap-3 pt-1">
                 {/* Button 1: Bản ghi của bạn */}
                 <button
                   type="button"
@@ -1007,17 +1016,17 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-stone-800 border border-stone-200 hover:bg-stone-50 text-xs font-bold transition-all shadow-2xs"
                 >
                   <Volume2 className="w-4 h-4 text-red-700" />
-                  <span>{currentCard.pinyin || currentCard.hanzi}</span>
+                  <span>Nghe bản xứ</span>
                 </button>
               </div>
 
               {/* BIG CIRCULAR MICROPHONE BUTTON AT THE BOTTOM (Matching Screenshot) */}
-              <div className="flex flex-col items-center justify-center pt-3 pb-2 space-y-2">
+              <div className="flex flex-col items-center justify-center pt-2 pb-1 space-y-1.5">
                 <button
                   type="button"
                   onClick={handleToggleVoiceRecord}
                   disabled={isEvaluating}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95 ${
+                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95 ${
                     isListening
                       ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-300'
                       : 'bg-stone-950 text-white hover:bg-stone-900'
@@ -1025,62 +1034,133 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   title={isListening ? 'Bấm để dừng và chấm điểm' : 'Bấm để bắt đầu thu âm phát âm'}
                 >
                   {isListening ? (
-                    <Square className="w-6 h-6 fill-current" />
+                    <Square className="w-5 h-5 fill-current" />
                   ) : (
-                    <Mic className="w-7 h-7" />
+                    <Mic className="w-6 h-6 sm:w-7 sm:h-7" />
                   )}
                 </button>
-                <div className="text-[11px] text-stone-500 font-medium">
+                <div className="text-[11px] text-stone-500 font-medium text-center">
                   {isListening
                     ? '🎤 Đang nghe... Đọc xong dừng 1s hoặc chạm để chấm điểm'
                     : isEvaluating
-                    ? 'Đang phân tích ngữ âm...'
-                    : 'Chạm micro để thu âm phát âm'}
-                </div>
-              </div>
-
-              {/* SM-2 Rating & Next Card Action */}
-              <div className="pt-3 border-t border-stone-200/80 space-y-2">
-                <div className="text-center text-xs text-stone-500 font-medium">
-                  Đánh giá khả năng nhận diện & phát âm:
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleRate(1)}
-                    className="py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-colors"
-                  >
-                    <div>Chưa nhớ</div>
-                    <div className="text-[10px] text-red-600 font-normal">Ôn lại</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRate(2)}
-                    className="py-2 px-3 rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-colors"
-                  >
-                    <div>Còn gượng</div>
-                    <div className="text-[10px] text-orange-600 font-normal">Khó</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRate(3)}
-                    className="py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-colors"
-                  >
-                    <div>Đọc tốt</div>
-                    <div className="text-[10px] text-emerald-600 font-normal">Tốt</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRate(4)}
-                    className="py-2 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-colors"
-                  >
-                    <div>Rất chuẩn</div>
-                    <div className="text-[10px] text-blue-600 font-normal">Dễ</div>
-                  </button>
+                    ? 'Đang phân tích ngữ âm AI...'
+                    : 'Chạm micro để thu âm phát âm và chấm điểm'}
                 </div>
               </div>
             </div>
           )}
+
+          {/* =========================================================================
+              SHARED SECTION 1: ĐÁNH GIÁ GHI NHỚ LẶP LẠI NGẮT QUÃNG SM-2 (SRS RATING BAR)
+              - ĐƯA LÊN TRƯỚC PHẦN NGHĨA TIẾNG VIỆT THEO YÊU CẦU
+             ========================================================================= */}
+          <div className="pt-2 border-t border-stone-100 space-y-2">
+            <div className="flex items-center justify-between text-xs text-stone-500 font-medium">
+              <span>Đánh giá mức độ ghi nhớ (Spaced Repetition SM-2):</span>
+              <span className="text-[11px] text-stone-400">Phím tắt: 1, 2, 3, 4</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => handleRate(1)}
+                className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all text-center hover:scale-102"
+              >
+                <div>Chưa nhớ (Lại)</div>
+                <div className="text-[10px] text-red-600 font-normal mt-0.5">1 ngày (Ôn lại)</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRate(2)}
+                className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all text-center hover:scale-102"
+              >
+                <div>Khó nhớ</div>
+                <div className="text-[10px] text-orange-600 font-normal mt-0.5">
+                  {formatInterval(Math.max(1, Math.round((currentCard.interval || 1) * 1.2)))}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRate(3)}
+                className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all text-center hover:scale-102"
+              >
+                <div>Tốt (Đã nhớ)</div>
+                <div className="text-[10px] text-emerald-600 font-normal mt-0.5">
+                  {formatInterval(
+                    currentCard.repetitions === 0
+                      ? 1
+                      : Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5))
+                  )}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRate(4)}
+                className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all text-center hover:scale-102"
+              >
+                <div>Rất dễ (Thuộc làu)</div>
+                <div className="text-[10px] text-blue-600 font-normal mt-0.5">
+                  {formatInterval(
+                    Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5) * 1.3)
+                  )}
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* =========================================================================
+              SHARED SECTION 2: NGHĨA TIẾNG VIỆT (ẨN ĐI MẶC ĐỊNH CHO CẢ 2 SHEET)
+             ========================================================================= */}
+          <div className="p-4 bg-[#fbf9f5] rounded-3xl border border-stone-200/90 text-center space-y-2">
+            <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider block">
+              Nghĩa Tiếng Việt
+            </span>
+
+            {/* REQUIREMENT: Nghĩa Tiếng Việt của 2 sheet cũng ẩn đi, bấm nút để hiện */}
+            {!showMeaning ? (
+              <div className="py-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMeaning(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all shadow-2xs hover:scale-102"
+                >
+                  <Lightbulb className="w-4 h-4 text-amber-700" />
+                  <span>💡 Nhấn để xem Nghĩa Tiếng Việt (Kiểm tra trí nhớ)</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2 animate-in fade-in">
+                <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
+                  {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowMeaning(false)}
+                  className="text-[11px] text-stone-400 hover:text-stone-700 underline font-medium"
+                >
+                  Ẩn nghĩa
+                </button>
+              </div>
+            )}
+
+            {/* Example sentence if available (Revealed when meaning is shown) */}
+            {showMeaning && currentCard.exampleSentence && (
+              <div className="mt-3 p-3 bg-white rounded-2xl border border-stone-200/80 text-left text-xs space-y-1 animate-in fade-in">
+                <div className="flex items-center justify-between text-stone-500 font-semibold">
+                  <span>Câu ví dụ:</span>
+                  <button
+                    type="button"
+                    onClick={() => handlePlayAudio(currentCard.exampleSentence)}
+                    className="p-1 hover:text-red-700"
+                  >
+                    <Volume2 className="w-3.5 h-3.5 text-red-700" />
+                  </button>
+                </div>
+                <p className="font-hanzi font-semibold text-stone-900 text-sm">{currentCard.exampleSentence}</p>
+                {currentCard.examplePinyin && <p className="text-stone-500 font-mono">{currentCard.examplePinyin}</p>}
+                {currentCard.exampleMeaning && <p className="text-stone-600 italic">{currentCard.exampleMeaning}</p>}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
