@@ -93,35 +93,34 @@ export async function evaluatePronunciation(
 
   const prompt = `
 Bạn là chuyên gia thẩm định ngữ âm tiếng Trung bản ngữ (Standard Mandarin Phonetics).
-Học viên đang phát âm từ sau:
+Học viên đang luyện đọc từ sau:
 - Hán tự mục tiêu: "${targetHanzi}"
 - Pinyin mục tiêu: "${targetPinyin}"
 ${recognizedText ? `- Văn bản nhận dạng từ giọng học viên: "${recognizedText}"` : '- Học viên đã gửi bản ghi âm trực tiếp.'}
 
 ${audioBase64 ? 'Hãy lắng nghe kỹ file ghi âm đính kèm và phân tích phát âm thực tế của học viên.' : ''}
 
-Hãy phân tích ngữ âm cực kỳ chi tiết theo mô hình đánh giá 2 điểm số (Phát âm & Thanh điệu) và trả về đối tượng JSON gồm:
-1. "accuracyScore": Điểm tổng thể từ 0 đến 100.
-2. "pronunciationScore": Điểm phát âm phụ âm/nguyên âm (thanh mẫu/vận mẫu) từ 0 đến 100.
-3. "toneScore": Điểm chuẩn xác về thanh điệu (1, 2, 3, 4) từ 0 đến 100.
-4. "isCorrect": true nếu phát âm tốt (>= 75 điểm), false nếu cần cải thiện.
-5. "recognizedText": Chuỗi văn bản tiếng Trung hoặc phiên âm mà bạn nghe được từ học viên.
-6. "syllableDetails": Mảng chi tiết từng chữ Hán trong từ (theo thứ tự các chữ trong "${targetHanzi}"):
-   - "char": Chữ Hán tương ứng (ví dụ "工", "作")
-   - "pinyin": Pinyin có dấu của chữ đó (ví dụ "gōng", "zuò")
-   - "score": Điểm phát âm riêng của âm tiết đó (0-100, ví dụ 37, 80)
-   - "status": 'perfect' (>=85), 'good' (70-84), hoặc 'needs_work' (<70)
-7. "mistakeList": Danh sách các lỗi lệch âm hoặc thanh điệu cụ thể (nếu có):
-   - "code": Ký hiệu lỗi ngắn gọn (ví dụ "g→w", "ong→en", "uo→u", "Thanh 1→Thanh 4", "zh→z")
-   - "reason": Giải thích nguyên nhân ngắn gọn tiếng Việt (ví dụ: "Phụ âm đầu 1 bị lệch, nghe như 'w'", "Vần 1 bị lệch, nghe như 'en'", "Vần 2 bị lệch, nghe như 'u'")
-8. "mistakeDetail": Tóm tắt tổng quan chỗ sai rõ ràng cho học viên.
-9. "correctionGuide": Hướng dẫn sửa khẩu hình, vị trí lưỡi và luồng hơi từng bước.
-10. "toneFeedback": Phân tích chuẩn xác về quy luật thanh điệu của "${targetPinyin}".
-11. "tips": Mẹo bắt chước dễ nhớ so sánh với âm tiếng Việt.
-12. "phoneticBreakdown":
-    - "initial": Thanh mẫu chính
-    - "final": Vận mẫu chính
-    - "toneName": Tên thanh điệu
+QUY TẮC BẮT BUỘC ĐÁNH GIÁ (RẤT QUAN TRỌNG):
+1. NẾU HỌC VIÊN KHÔNG ĐỌC GÌ, IM LẶNG, CHỈ CÓ TIẾNG THỞ/TIẾNG ỒN MÔI TRƯỜNG, HOẶC NÓI TỪ TIẾNG VIỆT/TIẾNG ANH KHÔNG LIÊN QUAN:
+   - "accuracyScore": 0
+   - "pronunciationScore": 0
+   - "toneScore": 0
+   - "isCorrect": false
+   - "recognizedText": "(Không có âm thanh / Chưa đọc)"
+   - "syllableDetails": Mỗi chữ Hán có score: 0 và status: "needs_work"
+   - "mistakeList": [{ "code": "Im lặng", "reason": "Chưa phát hiện giọng đọc tiếng Trung. Vui lòng bấm micro và đọc to, rõ ràng!" }]
+   - "mistakeDetail": "Chưa ghi nhận được giọng đọc tiếng Trung."
+   - "correctionGuide": "Hãy nghe âm mẫu bản xứ và đọc to theo chữ Hán trên màn hình."
+
+2. NẾU HỌC VIÊN CÓ ĐỌC TIẾNG TRUNG:
+   - Điểm tổng (accuracyScore): 0-100 tùy theo độ chuẩn của phụ âm, nguyên âm và thanh điệu.
+   - Điểm phát âm (pronunciationScore): 0-100.
+   - Điểm thanh điệu (toneScore): 0-100 (Thanh 1 cao bằng, Thanh 2 đi lên, Thanh 3 trầm sâu, Thanh 4 giật mạnh).
+   - "isCorrect": true nếu >= 75 điểm, false nếu < 75 điểm.
+   - "syllableDetails": Mảng chi tiết từng chữ Hán ("char", "pinyin", "score", "status": 'perfect'|'good'|'needs_work').
+   - "mistakeList": Các lỗi lệch âm cụ thể (ví dụ "g→w", "ong→en", "Thanh 1→Thanh 4", "zh→z").
+
+Chỉ trả về đối tượng JSON theo cấu trúc yêu cầu.
 `;
 
   const parts: any[] = [];
@@ -212,33 +211,60 @@ Hãy phân tích ngữ âm cực kỳ chi tiết theo mô hình đánh giá 2 đ
       recognizedText: parsed.recognizedText || recognizedText,
     };
   } catch (err) {
-    const isMatch = recognizedText.trim().toLowerCase() === targetHanzi.trim().toLowerCase();
     const chars = targetHanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
     const pinyins = (targetPinyin || '').split(/\s+/);
+    const hasSpoken = Boolean(recognizedText && recognizedText.trim() && recognizedText !== '(Chưa rõ âm)');
+    const isMatch = hasSpoken && recognizedText.trim().toLowerCase().includes(targetHanzi.trim().toLowerCase());
+
+    if (!hasSpoken) {
+      return {
+        accuracyScore: 0,
+        pronunciationScore: 0,
+        toneScore: 0,
+        isCorrect: false,
+        recognizedText: '(Chưa phát hiện âm thanh)',
+        syllableDetails: chars.map((char, i) => ({
+          char,
+          pinyin: pinyins[i] || '',
+          score: 0,
+          status: 'needs_work',
+        })),
+        mistakeList: [
+          {
+            code: 'Im lặng',
+            reason: 'Chưa thu được giọng đọc. Hãy chạm micro và đọc to rõ ràng!',
+          },
+        ],
+        mistakeDetail: 'Chưa phát hiện giọng đọc.',
+        correctionGuide: `Hãy nghe âm mẫu của từ "${targetHanzi}" và đọc to theo.`,
+        toneFeedback: `Thanh điệu chuẩn của "${targetHanzi}" là "${targetPinyin}".`,
+        tips: 'Hãy mở micro và đọc to dứt khoát.',
+      };
+    }
 
     return {
-      accuracyScore: isMatch ? 92 : 65,
-      pronunciationScore: isMatch ? 95 : 70,
-      toneScore: isMatch ? 90 : 60,
+      accuracyScore: isMatch ? 92 : 25,
+      pronunciationScore: isMatch ? 95 : 30,
+      toneScore: isMatch ? 90 : 20,
       isCorrect: isMatch,
       recognizedText: recognizedText || targetHanzi,
       syllableDetails: chars.map((char, i) => ({
         char,
         pinyin: pinyins[i] || '',
-        score: isMatch ? 90 : 65,
+        score: isMatch ? 90 : 25,
         status: isMatch ? 'perfect' : 'needs_work',
       })),
       mistakeList: isMatch
         ? []
         : [
             {
-              code: `${targetPinyin.slice(0, 2)}...`,
-              reason: `Âm nhận diện '${recognizedText}'. Cần điều chỉnh theo phát âm chuẩn '${targetPinyin}'.`,
+              code: 'Lệch âm',
+              reason: `Âm nhận diện '${recognizedText}'. Cần đọc đúng chuẩn '${targetHanzi}' (${targetPinyin}).`,
             },
           ],
       mistakeDetail: isMatch
         ? 'Phát âm chuẩn xác!'
-        : `Cần điều chỉnh khẩu hình để phát âm chuẩn "${targetHanzi}" (${targetPinyin}).`,
+        : `Âm đọc "${recognizedText}" chưa chuẩn với "${targetHanzi}" (${targetPinyin}).`,
       correctionGuide: `Hãy nghe kỹ cách phát âm của từ "${targetHanzi}" và bắt chước khẩu hình chuẩn.`,
       toneFeedback: `Thanh điệu chuẩn cho "${targetHanzi}" là "${targetPinyin}".`,
       tips: 'Mở rộng khẩu hình, phát âm dứt khoát và rõ thanh điệu.',

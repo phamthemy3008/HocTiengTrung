@@ -1209,25 +1209,37 @@ export const StudySession: React.FC<StudySessionProps> = ({
                       fill="none"
                       d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                     />
-                    <path
-                      className={
-                        (evalResult?.accuracyScore || 82) >= 80
-                          ? 'text-emerald-500'
-                          : (evalResult?.accuracyScore || 82) >= 60
-                          ? 'text-amber-500'
-                          : 'text-red-500'
-                      }
-                      strokeDasharray={`${evalResult?.accuracyScore || 82}, 100`}
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
+                    {evalResult && (
+                      <path
+                        className={
+                          evalResult.accuracyScore >= 80
+                            ? 'text-emerald-500'
+                            : evalResult.accuracyScore >= 60
+                            ? 'text-amber-500'
+                            : 'text-red-500'
+                        }
+                        strokeDasharray={`${evalResult.accuracyScore}, 100`}
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        stroke="currentColor"
+                        fill="none"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                    )}
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xl sm:text-2xl font-bold text-stone-900 font-mono">
-                      {evalResult ? evalResult.accuracyScore : '—'}
+                    <span
+                      className={`text-xl sm:text-2xl font-bold font-mono ${
+                        evalResult
+                          ? evalResult.accuracyScore >= 80
+                            ? 'text-emerald-600'
+                            : evalResult.accuracyScore >= 60
+                            ? 'text-amber-600'
+                            : 'text-red-600'
+                          : 'text-stone-400'
+                      }`}
+                    >
+                      {evalResult !== null ? evalResult.accuracyScore : '—'}
                     </span>
                   </div>
                 </div>
@@ -1239,13 +1251,19 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     <div className="flex items-center justify-between text-xs font-semibold text-stone-600">
                       <span>Phát âm</span>
                       <span className="font-mono font-bold text-stone-900">
-                        {evalResult ? evalResult.pronunciationScore : '—'}
+                        {evalResult !== null ? `${evalResult.pronunciationScore}đ` : '—'}
                       </span>
                     </div>
                     <div className="w-full h-2 bg-stone-200 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-amber-400 rounded-full transition-all duration-500"
-                        style={{ width: `${evalResult?.pronunciationScore || 0}%` }}
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          (evalResult?.pronunciationScore ?? 0) >= 80
+                            ? 'bg-emerald-500'
+                            : (evalResult?.pronunciationScore ?? 0) >= 60
+                            ? 'bg-amber-400'
+                            : 'bg-red-400'
+                        }`}
+                        style={{ width: `${evalResult?.pronunciationScore ?? 0}%` }}
                       />
                     </div>
                   </div>
@@ -1255,13 +1273,19 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     <div className="flex items-center justify-between text-xs font-semibold text-stone-600">
                       <span>Thanh điệu</span>
                       <span className="font-mono font-bold text-stone-900">
-                        {evalResult ? evalResult.toneScore : '—'}
+                        {evalResult !== null ? `${evalResult.toneScore}đ` : '—'}
                       </span>
                     </div>
                     <div className="w-full h-2 bg-stone-200 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                        style={{ width: `${evalResult?.toneScore || 0}%` }}
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          (evalResult?.toneScore ?? 0) >= 80
+                            ? 'bg-emerald-500'
+                            : (evalResult?.toneScore ?? 0) >= 60
+                            ? 'bg-amber-400'
+                            : 'bg-red-400'
+                        }`}
+                        style={{ width: `${evalResult?.toneScore ?? 0}%` }}
                       />
                     </div>
                   </div>

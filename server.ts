@@ -18,6 +18,89 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// In-memory cache for high-speed TTS responses
+const ttsCache = new Map<string, { buffer: Buffer; mimeType: string }>();
+
+// High-definition Native Mandarin TTS Audio Endpoint (Same-origin, 100% reliable across all browsers & iOS)
+app.get('/api/tts', async (req, res) => {
+  const text = ((req.query.text as string) || '').trim();
+  if (!text) {
+    return res.status(400).send('Missing text parameter');
+  }
+
+  const cacheKey = text.toLowerCase();
+  let audioData: { buffer: Buffer; mimeType: string } | null = null;
+
+  if (ttsCache.has(cacheKey)) {
+    audioData = ttsCache.get(cacheKey)!;
+  } else {
+    const urls = [
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=zh-CN&client=tw-ob&q=${encodeURIComponent(text)}`,
+      `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&le=zh`,
+    ];
+
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            Referer: 'https://translate.google.com/',
+          },
+        });
+
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const mimeType = response.headers.get('content-type') || 'audio/mpeg';
+
+          audioData = { buffer, mimeType };
+
+          if (ttsCache.size > 1000) {
+            const firstKey = ttsCache.keys().next().value;
+            if (firstKey) ttsCache.delete(firstKey);
+          }
+          ttsCache.set(cacheKey, audioData);
+          break;
+        }
+      } catch (e) {
+        console.warn(`TTS source failed for "${text}":`, url, e);
+      }
+    }
+  }
+
+  if (!audioData) {
+    return res.status(502).send('Unable to generate TTS audio');
+  }
+
+  const { buffer, mimeType } = audioData;
+  const totalLength = buffer.length;
+
+  // Handle Range request for iOS Safari WebKit audio player
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10) || 0;
+    const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+    const chunksize = end - start + 1;
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${totalLength}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': mimeType,
+      'Cache-Control': 'public, max-age=604800, immutable',
+    });
+    return res.end(buffer.subarray(start, end + 1));
+  }
+
+  res.setHeader('Content-Type', mimeType);
+  res.setHeader('Content-Length', totalLength);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  return res.send(buffer);
+});
+
 // Handwriting stroke match check
 app.post('/api/check-handwriting', async (req, res) => {
   try {
