@@ -86,6 +86,38 @@ export function isCardDue(card: Card): boolean {
 }
 
 /**
+ * Prioritize and sort cards strictly according to SuperMemo-2 (SM-2) principles:
+ * - Tier 1: Overdue & Due cards (dueDate <= now, already learned) sorted by oldest due date
+ * - Tier 2: Difficult / Learning cards (isWeak, mistakeCount > 0, status === 'learning')
+ * - Tier 3: Brand new cards (repetitions === 0 or status === 'new')
+ * - Tier 4: Future review cards (dueDate > now)
+ */
+export function sortCardsForSM2Queue(cards: Card[]): Card[] {
+  const now = Date.now();
+
+  const getTier = (card: Card): number => {
+    const dueTime = card.dueDate ? new Date(card.dueDate).getTime() : 0;
+    const isDue = dueTime <= now;
+
+    if (isDue && (card.repetitions || 0) > 0) return 1; // Tier 1: Đến hạn ôn tập
+    if (card.isWeak || card.status === 'learning' || (card.mistakeCount && card.mistakeCount > 0)) return 2; // Tier 2: Thẻ khó / đang học
+    if (!card.repetitions || card.repetitions === 0 || card.status === 'new') return 3; // Tier 3: Thẻ mới
+    return 4; // Tier 4: Thẻ chưa đến hạn
+  };
+
+  return [...cards].sort((a, b) => {
+    const tierA = getTier(a);
+    const tierB = getTier(b);
+    if (tierA !== tierB) {
+      return tierA - tierB;
+    }
+    const dueA = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+    const dueB = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+    return dueA - dueB;
+  });
+}
+
+/**
  * Format interval into human readable Vietnamese string
  */
 export function formatInterval(days: number): string {

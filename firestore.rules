@@ -64,7 +64,7 @@ service cloud.firestore {
 
     function isValidCard(data) {
       return data.keys().hasAll(['id', 'deckId', 'userId', 'hanzi', 'meaning']) &&
-             data.keys().hasOnly(['id', 'deckId', 'userId', 'hanzi', 'pinyin', 'meaning', 'exampleSentence', 'examplePinyin', 'exampleMeaning', 'interval', 'repetitions', 'easeFactor', 'dueDate', 'lastReviewed', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'deckId', 'userId', 'hanzi', 'pinyin', 'meaning', 'exampleSentence', 'examplePinyin', 'exampleMeaning', 'tags', 'isWeak', 'mistakeCount', 'interval', 'repetitions', 'easeFactor', 'dueDate', 'lastReviewed', 'status', 'createdAt', 'updatedAt']) &&
              data.id is string && data.id.size() <= 128 &&
              data.deckId is string && data.deckId.size() <= 128 &&
              data.userId == request.auth.uid &&
@@ -74,6 +74,9 @@ service cloud.firestore {
              (!('exampleSentence' in data) || (data.exampleSentence is string && data.exampleSentence.size() <= 512)) &&
              (!('examplePinyin' in data) || (data.examplePinyin is string && data.examplePinyin.size() <= 512)) &&
              (!('exampleMeaning' in data) || (data.exampleMeaning is string && data.exampleMeaning.size() <= 512)) &&
+             (!('tags' in data) || data.tags is list) &&
+             (!('isWeak' in data) || data.isWeak is bool) &&
+             (!('mistakeCount' in data) || data.mistakeCount is int) &&
              (!('interval' in data) || data.interval is int) &&
              (!('repetitions' in data) || data.repetitions is int) &&
              (!('easeFactor' in data) || (data.easeFactor is number && data.easeFactor >= 1.0 && data.easeFactor <= 5.0)) &&

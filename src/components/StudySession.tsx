@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useId, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useId, useRef, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Volume2,
@@ -32,7 +32,7 @@ import {
 import { Card, Deck, StudyMode, PronunciationEvaluation, SyllableDetail, PhoneticMistake } from '../types';
 import { HanziCanvas } from './HanziCanvas';
 import { speechService } from '../services/speech';
-import { formatInterval } from '../services/srs';
+import { formatInterval, sortCardsForSM2Queue } from '../services/srs';
 
 interface StudySessionProps {
   cards: Card[];
@@ -136,6 +136,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [showReadingMeaning, setShowReadingMeaning] = useState<boolean>(false);
   const [sessionCompleted, setSessionCompleted] = useState<boolean>(false);
   const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
+  const [shuffleNotification, setShuffleNotification] = useState<string | null>(null);
+  const [isShuffling, setIsShuffling] = useState<boolean>(false);
 
   // Pronunciation check states (Matching attached screenshot format)
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -150,42 +152,100 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const micTranscriptRef = useRef<string>('');
   const autoAdvanceTimerRef = useRef<any>(null);
 
-  // Initialize or re-shuffle study queue when deck or tags change
-  useEffect(() => {
-    if (deckCards.length === 0) {
-      setStudyQueue([]);
-      setCurrentIndex(0);
-      setSessionCompleted(false);
-      return;
-    }
-    const sorted = [...deckCards].sort((a, b) => {
-      const aDue = new Date(a.dueDate || 0).getTime();
-      const bDue = new Date(b.dueDate || 0).getTime();
-      return aDue - bDue;
-    });
+  // Calculate effective mode for current card in study session
+  const currentEffectiveMode = useMemo<Exclude<StudyMode, 'random'>>(() => {
+    if (studyMode !== 'random') return studyMode;
+    const modes: Exclude<StudyMode, 'random'>[] = [
+      'vietnamese_to_writing', // Card 0: Nhìn Nghĩa TV → Viết
+      'hanzi_to_meaning',      // Card 1: Nhớ Nghĩa & Luyện Đọc
+      'audio_to_writing',      // Card 2: Nghe Âm → Viết (Ẩn nghĩa)
+    ];
+    return modes[currentIndex % modes.length];
+  }, [studyMode, currentIndex]);
 
-    setStudyQueue(sorted);
-    setCurrentIndex(0);
+  // Set up card view state for a given card index
+  const setupCardForIndex = useCallback((nextIdx: number, queue: Card[], currentStudyMode: StudyMode) => {
+    const card = queue[nextIdx];
+    if (!card) return;
+
+    let effMode: Exclude<StudyMode, 'random'> = 'vietnamese_to_writing';
+    if (currentStudyMode === 'random') {
+      const modes: Exclude<StudyMode, 'random'>[] = [
+        'vietnamese_to_writing',
+        'hanzi_to_meaning',
+        'audio_to_writing',
+      ];
+      effMode = modes[nextIdx % modes.length];
+    } else {
+      effMode = currentStudyMode;
+    }
+
+    if (effMode === 'hanzi_to_meaning') {
+      setActiveSheet('reading');
+      setShowReadingMeaning(false);
+      setShowReadingPinyin(false);
+      setShowWritingHint(false);
+    } else if (effMode === 'audio_to_writing') {
+      setActiveSheet('writing');
+      setShowWritingMeaning(false);
+      setShowWritingHint(false);
+      setShowReadingMeaning(false);
+      setShowReadingPinyin(false);
+      // Auto play pronunciation for listening mode
+      setTimeout(() => {
+        speechService.speak(card.hanzi);
+      }, 150);
+    } else {
+      // vietnamese_to_writing
+      setActiveSheet('writing');
+      setShowWritingMeaning(true);
+      setShowWritingHint(false);
+      setShowReadingMeaning(false);
+      setShowReadingPinyin(false);
+    }
+
     setIsFlipped(false);
-    setShowWritingHint(false);
-    setShowWritingMeaning(studyMode !== 'audio_to_writing');
-    setShowReadingPinyin(false);
-    setShowReadingMeaning(false);
-    setSessionCompleted(false);
     setEvalResult(null);
     setMicTranscript('');
     setRecordedAudioUrl(null);
-    setAutoAdvanceCountdown(null);
-  }, [deckCards]);
+  }, []);
+
+  // Track the deck and tags identity so we only re-init the queue when user changes deck/tags
+  const currentDeckTagKey = `${currentDeckId}__${selectedTags.slice().sort().join(',')}`;
+  const loadedDeckTagKeyRef = useRef<string>('');
+
+  // Initialize study queue ONLY when deck or tags change
+  useEffect(() => {
+    if (loadedDeckTagKeyRef.current !== currentDeckTagKey || studyQueue.length === 0) {
+      loadedDeckTagKeyRef.current = currentDeckTagKey;
+      if (deckCards.length === 0) {
+        setStudyQueue([]);
+        setCurrentIndex(0);
+        setSessionCompleted(false);
+        return;
+      }
+      const sorted = sortCardsForSM2Queue(deckCards);
+
+      setStudyQueue(sorted);
+      setCurrentIndex(0);
+      setSessionCompleted(false);
+      setAutoAdvanceCountdown(null);
+      setupCardForIndex(0, sorted, studyMode);
+    }
+  }, [currentDeckTagKey, deckCards, studyMode, setupCardForIndex]);
 
   const currentCard: Card | undefined = studyQueue[currentIndex];
 
-  // Auto-play audio when opening card if in 'audio_to_writing' mode
-  useEffect(() => {
-    if (currentCard && activeSheet === 'writing' && studyMode === 'audio_to_writing') {
-      speechService.speak(currentCard.hanzi);
+  // Helper to advance to next card smoothly
+  const advanceToNextCard = useCallback(() => {
+    if (currentIndex < studyQueue.length - 1) {
+      const nextIdx = currentIndex + 1;
+      setCurrentIndex(nextIdx);
+      setupCardForIndex(nextIdx, studyQueue, studyMode);
+    } else {
+      setSessionCompleted(true);
     }
-  }, [currentIndex, activeSheet, studyMode]);
+  }, [currentIndex, studyQueue, studyMode, setupCardForIndex]);
 
   // Cleanup timers & audio on unmount or card change
   useEffect(() => {
@@ -244,25 +304,13 @@ export const StudySession: React.FC<StudySessionProps> = ({
     // Auto record SM-2 rating 4 (Dễ / Perfect)
     await onRecordReview(currentCard, 4, 'writing');
 
-    // Auto advance countdown (1.2s)
+    // Auto advance countdown (1.0s)
     setAutoAdvanceCountdown(1);
 
     autoAdvanceTimerRef.current = setTimeout(() => {
       setAutoAdvanceCountdown(null);
-      if (currentIndex < studyQueue.length - 1) {
-        setCurrentIndex((prev) => prev + 1);
-        setIsFlipped(false);
-        setShowWritingHint(false);
-        setShowWritingMeaning(studyMode !== 'audio_to_writing');
-        setShowReadingPinyin(false);
-        setShowReadingMeaning(false);
-        setEvalResult(null);
-        setMicTranscript('');
-        setRecordedAudioUrl(null);
-      } else {
-        setSessionCompleted(true);
-      }
-    }, 1200);
+      advanceToNextCard();
+    }, 1000);
   };
 
   // Manual rating handler
@@ -275,20 +323,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
     }
 
     await onRecordReview(currentCard, rating, activeSheet);
-
-    if (currentIndex < studyQueue.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-      setIsFlipped(false);
-      setShowWritingHint(false);
-      setShowWritingMeaning(studyMode !== 'audio_to_writing');
-      setShowReadingPinyin(false);
-      setShowReadingMeaning(false);
-      setEvalResult(null);
-      setMicTranscript('');
-      setRecordedAudioUrl(null);
-    } else {
-      setSessionCompleted(true);
-    }
+    advanceToNextCard();
   };
 
   // Toggle Voice Recording with Gemini AI Pronunciation Check
@@ -450,31 +485,33 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const handleRestart = () => {
     setCurrentIndex(0);
     setSessionCompleted(false);
-    setIsFlipped(false);
-    setShowWritingHint(false);
-    setShowWritingMeaning(studyMode !== 'audio_to_writing');
-    setShowReadingPinyin(false);
-    setShowReadingMeaning(false);
-    setEvalResult(null);
-    setMicTranscript('');
-    setRecordedAudioUrl(null);
     setAutoAdvanceCountdown(null);
+    setupCardForIndex(0, studyQueue, studyMode);
   };
 
-  // Shuffle queue
+  // True Fisher-Yates Shuffle algorithm for uniform randomness
   const handleShuffle = () => {
-    const shuffled = [...studyQueue].sort(() => Math.random() - 0.5);
+    setIsShuffling(true);
+    const source = deckCards.length > 0 ? [...deckCards] : [...studyQueue];
+    const shuffled = [...source];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
     setStudyQueue(shuffled);
     setCurrentIndex(0);
-    setIsFlipped(false);
-    setShowWritingHint(false);
-    setShowWritingMeaning(studyMode !== 'audio_to_writing');
-    setShowReadingPinyin(false);
-    setShowReadingMeaning(false);
-    setEvalResult(null);
-    setMicTranscript('');
-    setRecordedAudioUrl(null);
+    setSessionCompleted(false);
     setAutoAdvanceCountdown(null);
+    setupCardForIndex(0, shuffled, studyMode);
+
+    setShuffleNotification(`Đã xáo trộn ngẫu nhiên ${shuffled.length} từ vựng!`);
+    setTimeout(() => {
+      setIsShuffling(false);
+    }, 450);
+    setTimeout(() => {
+      setShuffleNotification(null);
+    }, 2400);
   };
 
   // Empty state if no cards in deck
@@ -589,25 +626,14 @@ export const StudySession: React.FC<StudySessionProps> = ({
               onChange={(e) => {
                 const newMode = e.target.value as StudyMode;
                 setStudyMode(newMode);
-                if (newMode === 'vietnamese_to_writing') {
-                  setActiveSheet('writing');
-                  setShowWritingMeaning(true);
-                } else if (newMode === 'audio_to_writing') {
-                  setActiveSheet('writing');
-                  setShowWritingMeaning(false);
-                  if (currentCard) speechService.speak(currentCard.hanzi);
-                } else if (newMode === 'hanzi_to_meaning') {
-                  setActiveSheet('reading');
-                  setShowReadingMeaning(false);
-                  setShowReadingPinyin(false);
-                }
+                setupCardForIndex(currentIndex, studyQueue, newMode);
               }}
               className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
             >
               <option value="vietnamese_to_writing">✍️ Nhìn Nghĩa TV → Viết Hán Tự</option>
               <option value="audio_to_writing">🎧 Nghe Âm Đọc → Viết Hán Tự (Ẩn nghĩa)</option>
               <option value="hanzi_to_meaning">🗣️ Nhớ Nghĩa & Đọc (Hán → Nghĩa)</option>
-              <option value="random">🔀 Toàn Diện (Ngẫu Nhiên)</option>
+              <option value="random">🔀 Toàn Diện (Ngẫu Nhiên Luân Phiên)</option>
             </select>
           </div>
         </div>
@@ -617,10 +643,13 @@ export const StudySession: React.FC<StudySessionProps> = ({
           <button
             type="button"
             onClick={handleShuffle}
-            className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1 text-xs"
-            title="Trộn ngẫu nhiên thứ tự từ vựng"
+            disabled={isShuffling || studyQueue.length <= 1}
+            className={`p-2 sm:px-3 sm:py-1.5 text-stone-700 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold shadow-2xs ${
+              isShuffling ? 'scale-95 bg-stone-200 opacity-80' : 'active:scale-95'
+            }`}
+            title="Trộn ngẫu nhiên thứ tự toàn bộ từ vựng theo thuật toán Fisher-Yates"
           >
-            <Shuffle className="w-4 h-4" />
+            <Shuffle className={`w-3.5 h-3.5 text-amber-700 transition-transform duration-300 ${isShuffling ? 'rotate-180 scale-125' : ''}`} />
             <span className="hidden sm:inline">Trộn ngẫu nhiên</span>
           </button>
 
@@ -628,15 +657,26 @@ export const StudySession: React.FC<StudySessionProps> = ({
             <button
               type="button"
               onClick={onOpenGuide}
-              className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1 text-xs"
+              className="p-2 sm:px-3 sm:py-1.5 text-stone-700 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
               title="Hướng dẫn sử dụng"
             >
-              <HelpCircle className="w-4 h-4 text-amber-700" />
+              <HelpCircle className="w-3.5 h-3.5 text-amber-700" />
               <span className="hidden sm:inline">Hướng dẫn</span>
             </button>
           )}
         </div>
       </div>
+
+      {/* Shuffle Notification Toast */}
+      {shuffleNotification && (
+        <div className="p-2.5 px-4 bg-emerald-700 text-white text-xs font-bold rounded-2xl shadow-sm flex items-center justify-between animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex items-center gap-2">
+            <Shuffle className="w-4 h-4 text-emerald-200 animate-spin" />
+            <span>✓ {shuffleNotification}</span>
+          </div>
+          <span className="text-[11px] text-emerald-100 font-normal">Đã bắt đầu từ thẻ #1</span>
+        </div>
+      )}
 
       {/* Tag / Lesson Filter Pills */}
       {availableTags.length > 0 && (
@@ -785,6 +825,20 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <span>🗣️ Sheet 2: Luyện Đọc & Phát Âm</span>
                 </button>
               </div>
+
+              {/* Mode indicator badge when in Random/Comprehensive mode */}
+              {studyMode === 'random' && (
+                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold shadow-2xs animate-in fade-in">
+                  <Shuffle className="w-3 h-3 text-amber-700" />
+                  <span>
+                    Mục tiêu: {currentEffectiveMode === 'vietnamese_to_writing'
+                      ? '✍️ Nhìn nghĩa TV → Viết'
+                      : currentEffectiveMode === 'hanzi_to_meaning'
+                      ? '🗣️ Nhớ nghĩa & Luyện Đọc'
+                      : '🎧 Nghe âm → Viết (Ẩn nghĩa)'}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Right side: Actions (Pin to Weak Cards & Listen Standard Voice) */}
@@ -824,7 +878,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
           {activeSheet === 'writing' && (
             <div className="space-y-4 animate-in fade-in">
               {/* KHUNG HIỂN THỊ NGHĨA HOẶC NÚT NGHE ÂM THEO CHẾ ĐỘ ĐANG CHỌN */}
-              {studyMode === 'audio_to_writing' ? (
+              {currentEffectiveMode === 'audio_to_writing' ? (
                 /* CHẾ ĐỘ 2: NGHE ÂM ĐỌC → VIẾT HÁN TỰ (ẨN NGHĨA MẶC ĐỊNH) */
                 <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200/80 text-center space-y-3 shadow-2xs animate-in fade-in">
                   <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
