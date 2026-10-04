@@ -1,6 +1,6 @@
 export type CardStatus = 'new' | 'learning' | 'review' | 'mastered';
 
-export type StudyMode = 'vietnamese_to_writing' | 'hanzi_to_meaning' | 'random';
+export type StudyMode = 'vietnamese_to_writing' | 'audio_to_writing' | 'hanzi_to_meaning' | 'random';
 
 export interface Card {
   id: string;
@@ -13,6 +13,8 @@ export interface Card {
   examplePinyin?: string;
   exampleMeaning?: string;
   tags?: string[];
+  isWeak?: boolean; // Ghim vào Sổ tay từ hay sai / từ khó
+  mistakeCount?: number; // Số lần trả lời sai / phát âm sai
   // SRS (SuperMemo-2) State
   interval: number; // days
   repetitions: number; // consecutive correct answers

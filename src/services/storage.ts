@@ -249,6 +249,26 @@ class StorageService {
     }
   }
 
+  async toggleCardWeak(cardId: string, isWeak: boolean, userId?: string): Promise<Card | null> {
+    const cards = this.getCards();
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return null;
+    const updated: Card = {
+      ...card,
+      isWeak,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.saveCard(updated, userId);
+    return updated;
+  }
+
+  async getWeakCards(): Promise<Card[]> {
+    const cards = this.getCards();
+    return cards.filter(
+      (c) => c.isWeak === true || (c.mistakeCount && c.mistakeCount > 0) || c.status === 'learning'
+    );
+  }
+
   private recalculateDeckCounts(): void {
     const decks = this.getDecks();
     const cards = this.getCards();
@@ -267,9 +287,18 @@ class StorageService {
     userId?: string
   ): Promise<{ updatedCard: Card; log: StudyLog }> {
     const srsResult: SRSRatingResult = calculateSM2(card, rating);
+    
+    // Auto flag as weak card if rating is 1 (Chưa nhớ) or 2 (Khó)
+    const isHardOrAgain = rating === 1 || rating === 2;
+    const isMastered = rating === 4 && srsResult.repetitions >= 2;
+    const isWeak = isHardOrAgain ? true : isMastered ? false : (card.isWeak ?? false);
+    const mistakeCount = isHardOrAgain ? (card.mistakeCount || 0) + 1 : (card.mistakeCount || 0);
+
     const updatedCard: Card = {
       ...card,
       ...srsResult,
+      isWeak,
+      mistakeCount,
       lastReviewed: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

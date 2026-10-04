@@ -25,6 +25,9 @@ import {
   Flame,
   Eye,
   EyeOff,
+  Headphones,
+  BookText,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card, Deck, StudyMode, PronunciationEvaluation, SyllableDetail, PhoneticMistake } from '../types';
 import { HanziCanvas } from './HanziCanvas';
@@ -39,6 +42,8 @@ interface StudySessionProps {
   onRecordReview: (card: Card, rating: 1 | 2 | 3 | 4, mode: string) => Promise<void>;
   onNavigateToDecks: () => void;
   onOpenGuide?: () => void;
+  onToggleWeakStatus?: (cardId: string, isWeak: boolean) => Promise<void>;
+  openWeakCardsModal?: () => void;
 }
 
 export const StudySession: React.FC<StudySessionProps> = ({
@@ -49,13 +54,16 @@ export const StudySession: React.FC<StudySessionProps> = ({
   onRecordReview,
   onNavigateToDecks,
   onOpenGuide,
+  onToggleWeakStatus,
+  openWeakCardsModal,
 }) => {
   const currentDeckSelectId = useId();
   const studyModeSelectId = useId();
 
   // Study Mode:
-  // 'vietnamese_to_writing': Nhớ Viết (Hiển thị Nghĩa Việt, người học nhớ và luyện viết chữ Hán)
-  // 'hanzi_to_meaning': Nhớ Nghĩa & Đọc (Hiển thị chữ Hán, người học nhớ nghĩa & luyện phát âm)
+  // 'vietnamese_to_writing': Nhìn Nghĩa TV → Viết Hán tự (Nghĩa Việt hiện trên ô viết)
+  // 'audio_to_writing': Nghe Âm Đọc → Viết Hán tự (Ẩn nghĩa TV, nghe âm để viết chữ Hán)
+  // 'hanzi_to_meaning': Nhớ Nghĩa & Đọc (Hiển thị chữ Hán, ẩn nghĩa & pinyin để luyện đọc & nhớ nghĩa)
   // 'random': Toàn diện / Ngẫu nhiên luân phiên
   const [studyMode, setStudyMode] = useState<StudyMode>('vietnamese_to_writing');
 
@@ -67,11 +75,19 @@ export const StudySession: React.FC<StudySessionProps> = ({
   // Selected Tags for filtering study session (multi-selection)
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
+  // Weak cards list
+  const weakCards = useMemo(() => {
+    return cards.filter(
+      (c) => c.isWeak === true || (c.mistakeCount && c.mistakeCount > 0) || c.status === 'learning'
+    );
+  }, [cards]);
+
   // Base cards in the selected deck
   const baseDeckCards = useMemo(() => {
+    if (currentDeckId === 'weak_cards') return weakCards;
     if (currentDeckId === 'all') return cards;
     return cards.filter((c) => c.deckId === currentDeckId);
-  }, [cards, currentDeckId]);
+  }, [cards, currentDeckId, weakCards]);
 
   // All distinct tags available in the current deck
   const availableTags = useMemo(() => {
@@ -115,8 +131,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isFlipped, setIsFlipped] = useState<boolean>(false);
   const [showWritingHint, setShowWritingHint] = useState<boolean>(false);
+  const [showWritingMeaning, setShowWritingMeaning] = useState<boolean>(true);
   const [showReadingPinyin, setShowReadingPinyin] = useState<boolean>(false);
-  const [showMeaning, setShowMeaning] = useState<boolean>(false);
+  const [showReadingMeaning, setShowReadingMeaning] = useState<boolean>(false);
   const [sessionCompleted, setSessionCompleted] = useState<boolean>(false);
   const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
 
@@ -151,8 +168,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setCurrentIndex(0);
     setIsFlipped(false);
     setShowWritingHint(false);
+    setShowWritingMeaning(studyMode !== 'audio_to_writing');
     setShowReadingPinyin(false);
-    setShowMeaning(false);
+    setShowReadingMeaning(false);
     setSessionCompleted(false);
     setEvalResult(null);
     setMicTranscript('');
@@ -161,6 +179,13 @@ export const StudySession: React.FC<StudySessionProps> = ({
   }, [deckCards]);
 
   const currentCard: Card | undefined = studyQueue[currentIndex];
+
+  // Auto-play audio when opening card if in 'audio_to_writing' mode
+  useEffect(() => {
+    if (currentCard && activeSheet === 'writing' && studyMode === 'audio_to_writing') {
+      speechService.speak(currentCard.hanzi);
+    }
+  }, [currentIndex, activeSheet, studyMode]);
 
   // Cleanup timers & audio on unmount or card change
   useEffect(() => {
@@ -196,8 +221,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const handleFlipCard = () => {
     if (!isFlipped) {
       setIsFlipped(true);
-      setShowMeaning(true);
+      setShowWritingMeaning(true);
+      setShowReadingMeaning(true);
       setShowReadingPinyin(true);
+      setShowWritingHint(true);
       handlePlayAudio(currentCard?.hanzi);
     }
   };
@@ -226,8 +253,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
         setCurrentIndex((prev) => prev + 1);
         setIsFlipped(false);
         setShowWritingHint(false);
+        setShowWritingMeaning(studyMode !== 'audio_to_writing');
         setShowReadingPinyin(false);
-        setShowMeaning(false);
+        setShowReadingMeaning(false);
         setEvalResult(null);
         setMicTranscript('');
         setRecordedAudioUrl(null);
@@ -252,8 +280,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
       setCurrentIndex((prev) => prev + 1);
       setIsFlipped(false);
       setShowWritingHint(false);
+      setShowWritingMeaning(studyMode !== 'audio_to_writing');
       setShowReadingPinyin(false);
-      setShowMeaning(false);
+      setShowReadingMeaning(false);
       setEvalResult(null);
       setMicTranscript('');
       setRecordedAudioUrl(null);
@@ -423,8 +452,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setSessionCompleted(false);
     setIsFlipped(false);
     setShowWritingHint(false);
+    setShowWritingMeaning(studyMode !== 'audio_to_writing');
     setShowReadingPinyin(false);
-    setShowMeaning(false);
+    setShowReadingMeaning(false);
     setEvalResult(null);
     setMicTranscript('');
     setRecordedAudioUrl(null);
@@ -438,8 +468,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setCurrentIndex(0);
     setIsFlipped(false);
     setShowWritingHint(false);
+    setShowWritingMeaning(studyMode !== 'audio_to_writing');
     setShowReadingPinyin(false);
-    setShowMeaning(false);
+    setShowReadingMeaning(false);
     setEvalResult(null);
     setMicTranscript('');
     setRecordedAudioUrl(null);
@@ -518,7 +549,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
-      {/* Top Controls Bar: Deck Selector, Study Mode & Actions */}
+      {/* Top Controls Bar: Deck Selector, 4 Study Modes & Actions */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3.5 bg-white rounded-2xl border border-stone-200 shadow-2xs">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           {/* Deck Select Dropdown */}
@@ -536,6 +567,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
               className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
             >
               <option value="all">Tất cả bộ từ ({cards.length} từ)</option>
+              <option value="weak_cards" className="font-bold text-red-700 bg-red-50">
+                🚨 Sổ Tay Từ Hay Sai ({weakCards.length} từ)
+              </option>
               {decks.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.title} ({cards.filter((c) => c.deckId === d.id).length} từ)
@@ -544,7 +578,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
             </select>
           </div>
 
-          {/* Study Mode Selector (CHẾ ĐỘ HỌC) */}
+          {/* Study Mode Selector (4 CHẾ ĐỘ HỌC CHUYÊN SÂU) */}
           <div className="flex items-center gap-2">
             <label htmlFor={studyModeSelectId} className="text-xs font-semibold text-stone-500 shrink-0">
               Chế độ:
@@ -557,13 +591,21 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 setStudyMode(newMode);
                 if (newMode === 'vietnamese_to_writing') {
                   setActiveSheet('writing');
+                  setShowWritingMeaning(true);
+                } else if (newMode === 'audio_to_writing') {
+                  setActiveSheet('writing');
+                  setShowWritingMeaning(false);
+                  if (currentCard) speechService.speak(currentCard.hanzi);
                 } else if (newMode === 'hanzi_to_meaning') {
                   setActiveSheet('reading');
+                  setShowReadingMeaning(false);
+                  setShowReadingPinyin(false);
                 }
               }}
               className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
             >
-              <option value="vietnamese_to_writing">✍️ Nhớ Viết (Việt → Viết Hán)</option>
+              <option value="vietnamese_to_writing">✍️ Nhìn Nghĩa TV → Viết Hán Tự</option>
+              <option value="audio_to_writing">🎧 Nghe Âm Đọc → Viết Hán Tự (Ẩn nghĩa)</option>
               <option value="hanzi_to_meaning">🗣️ Nhớ Nghĩa & Đọc (Hán → Nghĩa)</option>
               <option value="random">🔀 Toàn Diện (Ngẫu Nhiên)</option>
             </select>
@@ -656,6 +698,48 @@ export const StudySession: React.FC<StudySessionProps> = ({
         </div>
       )}
 
+      {/* WEAK CARDS CALLOUT BANNER IF ANY WEAK CARDS EXIST */}
+      {currentDeckId === 'weak_cards' ? (
+        <div className="p-3.5 bg-gradient-to-r from-red-50 to-amber-50 rounded-2xl border border-red-200/90 shadow-2xs flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <AlertTriangle className="w-4 h-4" />
+            </span>
+            <div>
+              <span className="font-bold text-red-900 block">Đang Ôn Luyện: Sổ Tay Từ Hay Sai ({studyQueue.length} từ)</span>
+              <span className="text-[11px] text-stone-600">
+                Hãy tập trung sửa lỗi phát âm và luyện viết các nét chữ bạn còn hay quên.
+              </span>
+            </div>
+          </div>
+          {openWeakCardsModal && (
+            <button
+              type="button"
+              onClick={openWeakCardsModal}
+              className="px-3 py-1.5 rounded-xl bg-white border border-red-200 text-red-800 font-bold text-xs hover:bg-red-50 transition-colors shrink-0"
+            >
+              Xem danh sách
+            </button>
+          )}
+        </div>
+      ) : weakCards.length > 0 && openWeakCardsModal ? (
+        <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/70 shadow-2xs flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+            <span className="text-amber-900 font-medium">
+              Bạn có <strong>{weakCards.length}</strong> từ hay sai cần ôn lại.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={openWeakCardsModal}
+            className="text-amber-900 font-bold hover:underline shrink-0 text-xs"
+          >
+            Mở Sổ Tay Từ Khó →
+          </button>
+        </div>
+      ) : null}
+
       {/* =========================================================================
           UNIFIED 1-DIV CONTAINER (GỘP ĐỌC VÀ VIẾT VÀO 1 CARD CÓ 2 SHEET)
          ========================================================================= */}
@@ -703,25 +787,104 @@ export const StudySession: React.FC<StudySessionProps> = ({
               </div>
             </div>
 
-            {/* Right side: Listen Standard Voice Button */}
-            <button
-              type="button"
-              onClick={() => handlePlayAudio(currentCard.hanzi)}
-              className="p-2 text-stone-500 hover:text-red-700 rounded-xl hover:bg-stone-50 transition-colors flex items-center gap-1.5 text-xs font-semibold shrink-0 self-start sm:self-auto"
-              title="Nghe phát âm chuẩn người bản xứ"
-            >
-              <Volume2 className="w-4 h-4 text-red-700" />
-              <span className="hidden sm:inline">Phát âm chuẩn</span>
-            </button>
+            {/* Right side: Actions (Pin to Weak Cards & Listen Standard Voice) */}
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              {onToggleWeakStatus && (
+                <button
+                  type="button"
+                  onClick={() => onToggleWeakStatus(currentCard.id, !currentCard.isWeak)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shrink-0 ${
+                    currentCard.isWeak
+                      ? 'text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 shadow-2xs'
+                      : 'text-stone-400 hover:text-stone-700 hover:bg-stone-50 border border-transparent'
+                  }`}
+                  title={currentCard.isWeak ? 'Bỏ ghim khỏi Sổ tay từ khó' : 'Ghim vào Sổ tay từ hay sai / từ khó'}
+                >
+                  <AlertTriangle className={`w-3.5 h-3.5 ${currentCard.isWeak ? 'text-red-600 fill-red-100' : ''}`} />
+                  <span className="hidden sm:inline">{currentCard.isWeak ? 'Từ khó' : 'Ghim khó'}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handlePlayAudio(currentCard.hanzi)}
+                className="p-2 text-stone-500 hover:text-red-700 rounded-xl hover:bg-stone-50 transition-colors flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                title="Nghe phát âm chuẩn người bản xứ"
+              >
+                <Volume2 className="w-4 h-4 text-red-700" />
+                <span className="hidden sm:inline">Phát âm chuẩn</span>
+              </button>
+            </div>
           </div>
 
           {/* =========================================================================
               SHEET 1: TẬP VIẾT CHỮ HÁN (Hanzi Canvas & Stroke Practice)
+              - TỰ ĐỘNG THÍCH ỨNG THEO CHẾ ĐỘ: "Nhìn Nghĩa TV → Viết" HOẶC "Nghe Âm → Viết (Ẩn nghĩa)"
              ========================================================================= */}
           {activeSheet === 'writing' && (
             <div className="space-y-4 animate-in fade-in">
+              {/* KHUNG HIỂN THỊ NGHĨA HOẶC NÚT NGHE ÂM THEO CHẾ ĐỘ ĐANG CHỌN */}
+              {studyMode === 'audio_to_writing' ? (
+                /* CHẾ ĐỘ 2: NGHE ÂM ĐỌC → VIẾT HÁN TỰ (ẨN NGHĨA MẶC ĐỊNH) */
+                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200/80 text-center space-y-3 shadow-2xs animate-in fade-in">
+                  <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+                    🎧 Chế độ Nghe - Viết (Nghe âm đọc & nhớ cách viết)
+                  </span>
+
+                  {/* Nút bấm to để nghe lại âm thanh */}
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handlePlayAudio(currentCard.hanzi)}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm shadow-sm transition-all hover:scale-102 active:scale-98"
+                    >
+                      <Volume2 className="w-4 h-4" />
+                      <span>🔊 Bấm để nghe phát âm</span>
+                    </button>
+                  </div>
+
+                  {/* Nút hỗ trợ mở xem Nghĩa Tiếng Việt nếu lỡ quên */}
+                  <div>
+                    {!showWritingMeaning ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowWritingMeaning(true)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-stone-600 bg-white border border-stone-200 hover:bg-stone-50 transition-all shadow-2xs"
+                      >
+                        <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+                        <span>💡 Nhấn để xem Nghĩa Tiếng Việt (Hỗ trợ)</span>
+                      </button>
+                    ) : (
+                      <div className="space-y-1.5 pt-1 animate-in fade-in">
+                        <div className="text-lg sm:text-xl font-bold text-stone-900 font-vietnamese">
+                          {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowWritingMeaning(false)}
+                          className="text-[11px] text-stone-500 hover:text-stone-800 underline"
+                        >
+                          Ẩn nghĩa
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* CHẾ ĐỘ 1: NHÌN NGHĨA TIẾNG VIỆT → VIẾT HÁN TỰ */
+                <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-1 shadow-2xs animate-in fade-in">
+                  <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
+                    Nghĩa Tiếng Việt (Hãy nhớ và viết chữ Hán tương ứng)
+                  </span>
+                  <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
+                    {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                  </h3>
+                </div>
+              )}
+
+              {/* Khung ô tập viết chữ Mễ (米字格) */}
               <div className="bg-[#faf9f5] p-4 rounded-3xl border border-stone-200/90 space-y-3">
-                {/* Writing Hint Toggle (Gợi ý mặt chữ khi tập viết) */}
+                {/* Writing Hint Toggle (Gợi ý mặt chữ khi tập viết nếu quên) */}
                 <div className="flex items-center justify-between pb-1 border-b border-stone-200/60 text-xs">
                   <span className="font-semibold text-stone-600">Ô tập viết chữ Mễ (米字格)</span>
                   {!showWritingHint ? (
@@ -731,15 +894,16 @@ export const StudySession: React.FC<StudySessionProps> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg transition-all"
                     >
                       <Lightbulb className="w-3 h-3 text-amber-700" />
-                      <span>💡 Gợi ý mặt chữ</span>
+                      <span>💡 Gợi ý mặt chữ & Pinyin</span>
                     </button>
                   ) : (
                     <div className="inline-flex items-center gap-2">
                       <span className="font-hanzi font-bold text-stone-900 text-sm">{currentCard.hanzi}</span>
+                      <span className="font-mono text-xs text-red-700 font-semibold bg-white px-2 py-0.5 rounded border border-red-200">{currentCard.pinyin}</span>
                       <button
                         type="button"
                         onClick={() => setShowWritingHint(false)}
-                        className="text-[10px] text-stone-500 hover:text-stone-800 underline"
+                        className="text-[10px] text-stone-500 hover:text-stone-800 underline ml-1"
                       >
                         Ẩn
                       </button>
@@ -773,12 +937,85 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* SM-2 Rating Bar for Writing Sheet */}
+              <div className="pt-2 border-t border-stone-100 space-y-2">
+                <div className="flex items-center justify-between text-xs text-stone-500 font-medium">
+                  <span>Đánh giá mức độ ghi nhớ (Spaced Repetition SM-2):</span>
+                  <span className="text-[11px] text-stone-400">Phím tắt: 1, 2, 3, 4</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRate(1)}
+                    className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Chưa nhớ (Lại)</div>
+                    <div className="text-[10px] text-red-600 font-normal mt-0.5">1 ngày (Ôn lại)</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRate(2)}
+                    className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Khó nhớ</div>
+                    <div className="text-[10px] text-orange-600 font-normal mt-0.5">
+                      {formatInterval(Math.max(1, Math.round((currentCard.interval || 1) * 1.2)))}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRate(3)}
+                    className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Tốt (Đã nhớ)</div>
+                    <div className="text-[10px] text-emerald-600 font-normal mt-0.5">
+                      {formatInterval(
+                        currentCard.repetitions === 0
+                          ? 1
+                          : Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5))
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRate(4)}
+                    className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Rất dễ (Thuộc làu)</div>
+                    <div className="text-[10px] text-blue-600 font-normal mt-0.5">
+                      {formatInterval(
+                        Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5) * 1.3)
+                      )}
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Example sentence if available */}
+              {currentCard.exampleSentence && (
+                <div className="mt-2 p-3 bg-stone-50 rounded-2xl border border-stone-200/80 text-left text-xs space-y-1">
+                  <div className="flex items-center justify-between text-stone-500 font-semibold">
+                    <span>Câu ví dụ:</span>
+                    <button
+                      type="button"
+                      onClick={() => handlePlayAudio(currentCard.exampleSentence)}
+                      className="p-1 hover:text-red-700"
+                    >
+                      <Volume2 className="w-3.5 h-3.5 text-red-700" />
+                    </button>
+                  </div>
+                  <p className="font-hanzi font-semibold text-stone-900 text-sm">{currentCard.exampleSentence}</p>
+                  {currentCard.examplePinyin && <p className="text-stone-500 font-mono">{currentCard.examplePinyin}</p>}
+                  {currentCard.exampleMeaning && <p className="text-stone-600 italic">{currentCard.exampleMeaning}</p>}
+                </div>
+              )}
             </div>
           )}
 
           {/* =========================================================================
               SHEET 2: LUYỆN ĐỌC & PHÁT ÂM AI (Speech Recognition & Evaluation)
-              - ẨN PINYIN ĐI, CHỈ HIỂN THỊ KHI BẤM NÚT HỖ TRỢ
+              - ẨN PINYIN VÀ ẨN NGHĨA TIẾNG VIỆT ĐỂ NGƯỜI HỌC TỰ NHỚ & ĐỌC CHỮ HÁN
              ========================================================================= */}
           {activeSheet === 'reading' && (
             <div className="space-y-4 animate-in fade-in">
@@ -1047,120 +1284,114 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     : 'Chạm micro để thu âm phát âm và chấm điểm'}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* =========================================================================
-              SHARED SECTION 1: ĐÁNH GIÁ GHI NHỚ LẶP LẠI NGẮT QUÃNG SM-2 (SRS RATING BAR)
-              - ĐƯA LÊN TRƯỚC PHẦN NGHĨA TIẾNG VIỆT THEO YÊU CẦU
-             ========================================================================= */}
-          <div className="pt-2 border-t border-stone-100 space-y-2">
-            <div className="flex items-center justify-between text-xs text-stone-500 font-medium">
-              <span>Đánh giá mức độ ghi nhớ (Spaced Repetition SM-2):</span>
-              <span className="text-[11px] text-stone-400">Phím tắt: 1, 2, 3, 4</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={() => handleRate(1)}
-                className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all text-center hover:scale-102"
-              >
-                <div>Chưa nhớ (Lại)</div>
-                <div className="text-[10px] text-red-600 font-normal mt-0.5">1 ngày (Ôn lại)</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRate(2)}
-                className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all text-center hover:scale-102"
-              >
-                <div>Khó nhớ</div>
-                <div className="text-[10px] text-orange-600 font-normal mt-0.5">
-                  {formatInterval(Math.max(1, Math.round((currentCard.interval || 1) * 1.2)))}
+              {/* SM-2 Rating Bar for Reading Sheet */}
+              <div className="pt-2 border-t border-stone-100 space-y-2">
+                <div className="flex items-center justify-between text-xs text-stone-500 font-medium">
+                  <span>Đánh giá mức độ ghi nhớ (Spaced Repetition SM-2):</span>
+                  <span className="text-[11px] text-stone-400">Phím tắt: 1, 2, 3, 4</span>
                 </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRate(3)}
-                className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all text-center hover:scale-102"
-              >
-                <div>Tốt (Đã nhớ)</div>
-                <div className="text-[10px] text-emerald-600 font-normal mt-0.5">
-                  {formatInterval(
-                    currentCard.repetitions === 0
-                      ? 1
-                      : Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5))
-                  )}
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRate(4)}
-                className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all text-center hover:scale-102"
-              >
-                <div>Rất dễ (Thuộc làu)</div>
-                <div className="text-[10px] text-blue-600 font-normal mt-0.5">
-                  {formatInterval(
-                    Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5) * 1.3)
-                  )}
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* =========================================================================
-              SHARED SECTION 2: NGHĨA TIẾNG VIỆT (ẨN ĐI MẶC ĐỊNH CHO CẢ 2 SHEET)
-             ========================================================================= */}
-          <div className="p-4 bg-[#fbf9f5] rounded-3xl border border-stone-200/90 text-center space-y-2">
-            <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider block">
-              Nghĩa Tiếng Việt
-            </span>
-
-            {/* REQUIREMENT: Nghĩa Tiếng Việt của 2 sheet cũng ẩn đi, bấm nút để hiện */}
-            {!showMeaning ? (
-              <div className="py-2">
-                <button
-                  type="button"
-                  onClick={() => setShowMeaning(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all shadow-2xs hover:scale-102"
-                >
-                  <Lightbulb className="w-4 h-4 text-amber-700" />
-                  <span>💡 Nhấn để xem Nghĩa Tiếng Việt (Kiểm tra trí nhớ)</span>
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2 animate-in fade-in">
-                <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
-                  {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowMeaning(false)}
-                  className="text-[11px] text-stone-400 hover:text-stone-700 underline font-medium"
-                >
-                  Ẩn nghĩa
-                </button>
-              </div>
-            )}
-
-            {/* Example sentence if available (Revealed when meaning is shown) */}
-            {showMeaning && currentCard.exampleSentence && (
-              <div className="mt-3 p-3 bg-white rounded-2xl border border-stone-200/80 text-left text-xs space-y-1 animate-in fade-in">
-                <div className="flex items-center justify-between text-stone-500 font-semibold">
-                  <span>Câu ví dụ:</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
-                    onClick={() => handlePlayAudio(currentCard.exampleSentence)}
-                    className="p-1 hover:text-red-700"
+                    onClick={() => handleRate(1)}
+                    className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all text-center hover:scale-102"
                   >
-                    <Volume2 className="w-3.5 h-3.5 text-red-700" />
+                    <div>Chưa nhớ (Lại)</div>
+                    <div className="text-[10px] text-red-600 font-normal mt-0.5">1 ngày (Ôn lại)</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRate(2)}
+                    className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Khó nhớ</div>
+                    <div className="text-[10px] text-orange-600 font-normal mt-0.5">
+                      {formatInterval(Math.max(1, Math.round((currentCard.interval || 1) * 1.2)))}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRate(3)}
+                    className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Tốt (Đã nhớ)</div>
+                    <div className="text-[10px] text-emerald-600 font-normal mt-0.5">
+                      {formatInterval(
+                        currentCard.repetitions === 0
+                          ? 1
+                          : Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5))
+                      )}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRate(4)}
+                    className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all text-center hover:scale-102"
+                  >
+                    <div>Rất dễ (Thuộc làu)</div>
+                    <div className="text-[10px] text-blue-600 font-normal mt-0.5">
+                      {formatInterval(
+                        Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5) * 1.3)
+                      )}
+                    </div>
                   </button>
                 </div>
-                <p className="font-hanzi font-semibold text-stone-900 text-sm">{currentCard.exampleSentence}</p>
-                {currentCard.examplePinyin && <p className="text-stone-500 font-mono">{currentCard.examplePinyin}</p>}
-                {currentCard.exampleMeaning && <p className="text-stone-600 italic">{currentCard.exampleMeaning}</p>}
               </div>
-            )}
-          </div>
+
+              {/* REQUIREMENT: Ở Sheet Luyện Đọc, Nghĩa Tiếng Việt ẨN MẶC ĐỊNH, chỉ hiện khi ấn xem */}
+              <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-2">
+                <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
+                  Nghĩa Tiếng Việt
+                </span>
+
+                {!showReadingMeaning ? (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowReadingMeaning(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all shadow-2xs hover:scale-102"
+                    >
+                      <Lightbulb className="w-4 h-4 text-amber-700" />
+                      <span>💡 Nhấn để xem Nghĩa Tiếng Việt (Kiểm tra trí nhớ)</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 animate-in fade-in">
+                    <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
+                      {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowReadingMeaning(false)}
+                      className="text-[11px] text-stone-400 hover:text-stone-700 underline font-medium"
+                    >
+                      Ẩn nghĩa
+                    </button>
+                  </div>
+                )}
+
+                {/* Example sentence in Reading sheet (Revealed when meaning is shown) */}
+                {showReadingMeaning && currentCard.exampleSentence && (
+                  <div className="mt-3 p-3 bg-white rounded-2xl border border-stone-200/80 text-left text-xs space-y-1 animate-in fade-in">
+                    <div className="flex items-center justify-between text-stone-500 font-semibold">
+                      <span>Câu ví dụ:</span>
+                      <button
+                        type="button"
+                        onClick={() => handlePlayAudio(currentCard.exampleSentence)}
+                        className="p-1 hover:text-red-700"
+                      >
+                        <Volume2 className="w-3.5 h-3.5 text-red-700" />
+                      </button>
+                    </div>
+                    <p className="font-hanzi font-semibold text-stone-900 text-sm">{currentCard.exampleSentence}</p>
+                    {currentCard.examplePinyin && <p className="text-stone-500 font-mono">{currentCard.examplePinyin}</p>}
+                    {currentCard.exampleMeaning && <p className="text-stone-600 italic">{currentCard.exampleMeaning}</p>}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

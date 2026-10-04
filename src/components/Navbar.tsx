@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   HelpCircle,
   MessageSquarePlus,
+  AlertTriangle,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -24,6 +25,8 @@ interface NavbarProps {
   openSettingsModal: () => void;
   openUserGuide: () => void;
   openFeedbackModal: () => void;
+  openWeakCardsModal: () => void;
+  weakCardsCount: number;
   profile: UserProfile;
   currentUser: any;
   onLogin: () => void;
@@ -40,6 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   openSettingsModal,
   openUserGuide,
   openFeedbackModal,
+  openWeakCardsModal,
+  weakCardsCount,
   profile,
   currentUser,
   onLogin,
@@ -144,8 +149,28 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Right Actions: Guide, Feedback, OCR, Streak, Auth, Settings */}
+        {/* Right Actions: Guide, Feedback, Weak Cards, OCR, Streak, Auth, Settings */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Sổ Tay Từ Hay Sai Button */}
+          <button
+            type="button"
+            onClick={openWeakCardsModal}
+            title="Mở Sổ Tay Từ Hay Sai & Khó Nhớ"
+            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shadow-2xs ${
+              weakCardsCount > 0
+                ? 'text-red-900 bg-red-50 hover:bg-red-100 border-red-200'
+                : 'text-stone-700 bg-white hover:bg-stone-50 border-stone-200'
+            }`}
+          >
+            <AlertTriangle className={`w-4 h-4 ${weakCardsCount > 0 ? 'text-red-600' : 'text-stone-500'}`} />
+            <span className="hidden lg:inline">Từ khó</span>
+            {weakCardsCount > 0 && (
+              <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-red-600 text-white">
+                {weakCardsCount}
+              </span>
+            )}
+          </button>
+
           {/* User Guide Button (Requirement 5) */}
           <button
             type="button"

@@ -19,6 +19,7 @@ import { DonationModal } from './components/DonationModal';
 import { AuthModal } from './components/AuthModal';
 import { UserGuideModal } from './components/UserGuideModal';
 import { FeedbackModal } from './components/FeedbackModal';
+import { WeakCardsModal } from './components/WeakCardsModal';
 import { Heart, Coffee, Ban, LogOut } from 'lucide-react';
 
 export default function App() {
@@ -48,6 +49,7 @@ export default function App() {
   const [isDonationOpen, setIsDonationOpen] = useState<boolean>(false);
   const [isUserGuideOpen, setIsUserGuideOpen] = useState<boolean>(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
+  const [isWeakCardsModalOpen, setIsWeakCardsModalOpen] = useState<boolean>(false);
 
   // Online / Offline listener
   useEffect(() => {
@@ -348,6 +350,20 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  const handleToggleWeakStatus = async (cardId: string, isWeak: boolean) => {
+    await storageService.toggleCardWeak(cardId, isWeak, currentUser?.uid);
+    setCards(storageService.getCards());
+  };
+
+  const handleStartStudyWeakCards = () => {
+    setCurrentDeckId('weak_cards');
+    setActiveTab('study');
+  };
+
+  const weakCardsCount = cards.filter(
+    (c) => c.isWeak === true || (c.mistakeCount && c.mistakeCount > 0) || c.status === 'learning'
+  ).length;
+
   const dueTodayCount = storageService.getDashboardStats().dueToday;
 
   return (
@@ -388,6 +404,8 @@ export default function App() {
         openSettingsModal={() => setIsSettingsOpen(true)}
         openUserGuide={() => setIsUserGuideOpen(true)}
         openFeedbackModal={() => setIsFeedbackOpen(true)}
+        openWeakCardsModal={() => setIsWeakCardsModalOpen(true)}
+        weakCardsCount={weakCardsCount}
         profile={profile}
         currentUser={currentUser}
         onLogin={handleLogin}
@@ -408,6 +426,8 @@ export default function App() {
             onRecordReview={handleRecordReview}
             onNavigateToDecks={() => setActiveTab('decks')}
             onOpenGuide={() => setIsUserGuideOpen(true)}
+            onToggleWeakStatus={handleToggleWeakStatus}
+            openWeakCardsModal={() => setIsWeakCardsModalOpen(true)}
           />
         )}
 
@@ -437,6 +457,15 @@ export default function App() {
           <AdminPanel currentUser={currentUser} onRefreshData={handleRefreshSystemData} />
         )}
       </main>
+
+      {/* Weak Cards Modal (Sổ Tay Từ Hay Sai & Khó Nhớ) */}
+      <WeakCardsModal
+        isOpen={isWeakCardsModalOpen}
+        onClose={() => setIsWeakCardsModalOpen(false)}
+        cards={cards}
+        onStartStudyWeakCards={handleStartStudyWeakCards}
+        onToggleWeakStatus={handleToggleWeakStatus}
+      />
 
       {/* OCR Modal */}
       <OcrModal
