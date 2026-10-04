@@ -84,4 +84,11 @@ export interface PronunciationEvaluation {
   toneFeedback: string;
   tips: string;
   isCorrect: boolean;
+  mistakeDetail?: string; // Chỉ rõ điểm sai cụ thể
+  correctionGuide?: string; // Hướng dẫn sửa chi tiết cách đọc
+  phoneticBreakdown?: {
+    initial?: string; // Thanh mẫu (phụ âm đầu)
+    final?: string; // Vận mẫu (nguyên âm)
+    toneName?: string; // Tên thanh điệu
+  };
 }

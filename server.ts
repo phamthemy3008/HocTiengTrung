@@ -2,12 +2,13 @@ import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
 import { extractVocabularyFromImage, evaluatePronunciation, checkHandwritingMatch } from './api/gemini';
-import { getSystemDecksAndCards, importSystemCards } from './api/systemDecks';
+import { getSystemDecksAndCards, saveSystemVocab, resetSystemVocabToDefault } from './api/systemDecks';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const ADMIN_EMAIL = 'phamthemy3008@gmail.com';
 
 app.use(express.json({ limit: '25mb' }));
 
@@ -61,7 +62,7 @@ app.post('/api/evaluate-pronunciation', async (req, res) => {
   }
 });
 
-// System default vocabulary endpoints
+// System default vocabulary endpoints (Admin protected)
 app.get('/api/system-vocab', (req, res) => {
   const data = getSystemDecksAndCards();
   res.json({ success: true, ...data });
@@ -69,8 +70,33 @@ app.get('/api/system-vocab', (req, res) => {
 
 app.post('/api/system-vocab', (req, res) => {
   try {
+    const adminEmail = (req.headers['x-admin-email'] || req.headers['authorization']) as string;
+    const cleanEmail = adminEmail ? adminEmail.replace('Bearer ', '').trim().toLowerCase() : '';
+    if (cleanEmail !== ADMIN_EMAIL.toLowerCase()) {
+      return res.status(403).json({
+        success: false,
+        error: `Chỉ tài khoản Quản trị viên (${ADMIN_EMAIL}) mới có quyền sửa đổi bộ từ hệ thống.`,
+      });
+    }
     const { decks, cards } = req.body;
-    const result = importSystemCards(decks, cards);
+    const result = saveSystemVocab(decks, cards);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/system-vocab/reset', (req, res) => {
+  try {
+    const adminEmail = (req.headers['x-admin-email'] || req.headers['authorization']) as string;
+    const cleanEmail = adminEmail ? adminEmail.replace('Bearer ', '').trim().toLowerCase() : '';
+    if (cleanEmail !== ADMIN_EMAIL.toLowerCase()) {
+      return res.status(403).json({
+        success: false,
+        error: `Chỉ tài khoản Quản trị viên (${ADMIN_EMAIL}) mới có quyền khôi phục bộ từ gốc.`,
+      });
+    }
+    const result = resetSystemVocabToDefault();
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

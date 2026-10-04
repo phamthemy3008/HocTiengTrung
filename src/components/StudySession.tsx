@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useId } from 'react';
+import React, { useState, useEffect, useMemo, useId, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Volume2,
@@ -107,6 +107,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
   const [evalResult, setEvalResult] = useState<PronunciationEvaluation | null>(null);
   const [voiceRecorder, setVoiceRecorder] = useState<{ stop: () => void } | null>(null);
+  const micTranscriptRef = useRef<string>('');
 
   // Initialize or re-shuffle study queue when deck changes
   useEffect(() => {
@@ -196,20 +197,32 @@ export const StudySession: React.FC<StudySessionProps> = ({
     if (isListening) {
       voiceRecorder?.stop();
       setIsListening(false);
+      const textToEvaluate = micTranscriptRef.current || micTranscript;
+      if (textToEvaluate.trim()) {
+        evaluateAudioWithAi(textToEvaluate.trim());
+      }
       return;
     }
 
     if (!speechService.isRecognitionSupported()) {
-      alert('Trình duyệt của bạn hiện chưa hỗ trợ tính năng Web Speech Recognition. Bạn có thể sử dụng Google Chrome để trải nghiệm tốt nhất!');
+      setEvalResult({
+        accuracyScore: 0,
+        recognizedText: '',
+        toneFeedback: 'Trình duyệt hiện chưa hỗ trợ Web Speech Recognition.',
+        tips: 'Bạn có thể sử dụng Google Chrome trên máy tính hoặc Android để trải nghiệm tính năng luyện phát âm!',
+        isCorrect: false,
+      });
       return;
     }
 
+    micTranscriptRef.current = '';
     setMicTranscript('');
     setEvalResult(null);
     setIsListening(true);
 
     const recorder = speechService.startListening(
       (transcript, isFinal) => {
+        micTranscriptRef.current = transcript;
         setMicTranscript(transcript);
         if (isFinal) {
           setIsListening(false);
@@ -754,16 +767,16 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <button
                     type="button"
                     onClick={handleToggleVoiceRecord}
-                    className={`flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                       isListening
-                        ? 'bg-red-600 text-white animate-pulse'
+                        ? 'bg-red-600 text-white animate-pulse shadow-xs'
                         : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
                     }`}
                   >
                     {isListening ? (
                       <>
                         <MicOff className="w-3.5 h-3.5" />
-                        <span>Đang nghe... Bấm để dừng</span>
+                        <span>Đang nghe... Bấm để chấm điểm</span>
                       </>
                     ) : (
                       <>
@@ -774,6 +787,13 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Listening helpful hint */}
+              {isListening && (
+                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200/80 px-2.5 py-1.5 rounded-lg flex items-center justify-between animate-fade-in">
+                  <span>🎤 Bạn hãy đọc to từ này. Đọc xong dừng 1s (máy tự chấm) hoặc bấm nút đỏ để chấm ngay.</span>
+                </div>
+              )}
 
               {/* Real-time transcript feedback */}
               {micTranscript && (
@@ -788,31 +808,127 @@ export const StudySession: React.FC<StudySessionProps> = ({
               {/* AI Pronunciation Evaluation Card */}
               {evalResult && (
                 <div
-                  className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${
+                  className={`p-4 rounded-xl border text-xs space-y-3 transition-all ${
                     evalResult.isCorrect
-                      ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-                      : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                      ? 'bg-emerald-50/60 border-emerald-300 text-emerald-950'
+                      : 'bg-amber-50/70 border-amber-300 text-amber-950'
                   }`}
                 >
-                  <div className="flex items-center justify-between font-bold">
-                    <span className="flex items-center gap-1">
+                  {/* Header: Status + Score */}
+                  <div className="flex items-center justify-between font-bold border-b pb-2 border-stone-200/60">
+                    <span className="flex items-center gap-1.5 text-sm">
                       {evalResult.isCorrect ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                       ) : (
-                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <AlertCircle className="w-5 h-5 text-amber-600" />
                       )}
-                      {evalResult.isCorrect ? 'Phát âm chuẩn xác!' : 'Cần điều chỉnh thêm'}
+                      <span>{evalResult.isCorrect ? 'Phát âm chuẩn xác!' : 'Cần điều chỉnh thêm'}</span>
                     </span>
-                    <span className="px-2 py-0.5 rounded-full bg-white text-xs border">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                        evalResult.isCorrect
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          : 'bg-amber-100 text-amber-800 border-amber-200'
+                      }`}
+                    >
                       Điểm: {evalResult.accuracyScore}/100
                     </span>
                   </div>
-                  <p className="text-[11px] leading-relaxed">
-                    <strong>Thanh điệu:</strong> {evalResult.toneFeedback}
-                  </p>
-                  <p className="text-[11px] leading-relaxed text-stone-600">
-                    <strong>Mẹo cải thiện:</strong> {evalResult.tips}
-                  </p>
+
+                  {/* Phonetic Breakdown Pills */}
+                  {evalResult.phoneticBreakdown && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="text-stone-500 font-medium">Cấu tạo âm:</span>
+                      {evalResult.phoneticBreakdown.initial && (
+                        <span className="px-2 py-0.5 bg-white rounded-md border border-stone-200 font-semibold text-stone-700">
+                          Thanh mẫu: <strong className="text-red-700">{evalResult.phoneticBreakdown.initial}</strong>
+                        </span>
+                      )}
+                      {evalResult.phoneticBreakdown.final && (
+                        <span className="px-2 py-0.5 bg-white rounded-md border border-stone-200 font-semibold text-stone-700">
+                          Vận mẫu: <strong className="text-blue-700">{evalResult.phoneticBreakdown.final}</strong>
+                        </span>
+                      )}
+                      {evalResult.phoneticBreakdown.toneName && (
+                        <span className="px-2 py-0.5 bg-white rounded-md border border-stone-200 font-semibold text-stone-700">
+                          Thanh điệu: <strong className="text-amber-800">{evalResult.phoneticBreakdown.toneName}</strong>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 1. CHỈ RÕ CHỖ SAI */}
+                  {evalResult.mistakeDetail && (
+                    <div
+                      className={`p-2.5 rounded-lg border text-xs leading-relaxed ${
+                        evalResult.isCorrect
+                          ? 'bg-white/80 border-emerald-200 text-emerald-900'
+                          : 'bg-red-50/80 border-red-200 text-red-900'
+                      }`}
+                    >
+                      <div className="font-bold flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider">
+                        {evalResult.isCorrect ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Đánh giá độ chuẩn xác:</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                            <span>Chỉ rõ điểm sai:</span>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-[11px] font-medium">{evalResult.mistakeDetail}</p>
+                    </div>
+                  )}
+
+                  {/* 2. HƯỚNG DẪN SỬA CÁCH ĐỌC */}
+                  {evalResult.correctionGuide && (
+                    <div className="p-2.5 rounded-lg bg-blue-50/80 border border-blue-200/90 text-blue-950 text-xs leading-relaxed">
+                      <div className="font-bold flex items-center gap-1.5 mb-1 text-[11px] uppercase tracking-wider text-blue-800">
+                        <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Hướng dẫn sửa cách đọc từng bước:</span>
+                      </div>
+                      <p className="text-[11px] whitespace-pre-line">{evalResult.correctionGuide}</p>
+                    </div>
+                  )}
+
+                  {/* 3. CHI TIẾT THANH ĐIỆU & MẸO NHANH */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                    {evalResult.toneFeedback && (
+                      <div className="p-2 rounded-lg bg-white/70 border border-stone-200/70">
+                        <span className="font-bold text-stone-700 block mb-0.5">🎼 Quy tắc thanh điệu:</span>
+                        <span className="text-stone-600">{evalResult.toneFeedback}</span>
+                      </div>
+                    )}
+                    {evalResult.tips && (
+                      <div className="p-2 rounded-lg bg-white/70 border border-stone-200/70">
+                        <span className="font-bold text-stone-700 block mb-0.5">💡 Mẹo phát âm dễ nhớ:</span>
+                        <span className="text-stone-600">{evalResult.tips}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick retry buttons */}
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-stone-200/60">
+                    <button
+                      type="button"
+                      onClick={() => handlePlayAudio(currentCard.hanzi)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 text-stone-700 border border-stone-200 text-[11px] font-semibold transition-colors"
+                    >
+                      <Volume2 className="w-3.5 h-3.5 text-red-700" />
+                      <span>Nghe mẫu chuẩn lại</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleToggleVoiceRecord}
+                      className="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-700 hover:bg-red-800 text-white text-[11px] font-semibold transition-colors shadow-2xs"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Thu âm đọc lại</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

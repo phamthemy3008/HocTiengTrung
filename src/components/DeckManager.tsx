@@ -188,6 +188,8 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
       description: deckDescription.trim(),
       color: deckColor,
       cardCount: editingDeck ? editingDeck.cardCount : 0,
+      isSystem: editingDeck ? editingDeck.isSystem : false,
+      isPublic: editingDeck ? editingDeck.isPublic : true,
       createdAt: editingDeck ? editingDeck.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -448,14 +450,24 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
 
                     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       {deck.isSystem ? (
-                        <button
-                          type="button"
-                          onClick={() => handleCloneDeck(deck)}
-                          className="px-2 py-0.5 text-[11px] font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200 transition-colors"
-                          title="Tạo bản sao cá nhân để tự do chỉnh sửa"
-                        >
-                          + Sao chép
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDeckModal(deck)}
+                            className="p-1 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100 transition-colors"
+                            title="Sửa tên / mô tả bộ từ"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCloneDeck(deck)}
+                            className="px-2 py-0.5 text-[11px] font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200 transition-colors"
+                            title="Tạo bản sao cá nhân"
+                          >
+                            + Sao chép
+                          </button>
+                        </div>
                       ) : (
                         <>
                           <button

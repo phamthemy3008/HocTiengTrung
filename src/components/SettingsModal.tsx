@@ -10,6 +10,8 @@ import {
   Eye,
   Shuffle,
   ShieldCheck,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { AppSettings, storageService } from '../services/storage';
 
@@ -19,6 +21,7 @@ interface SettingsModalProps {
   currentUser: any;
   onLogin: () => void;
   onLogout: () => void;
+  isLoggingIn?: boolean;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -27,6 +30,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentUser,
   onLogin,
   onLogout,
+  isLoggingIn = false,
 }) => {
   const dailyGoalSelectId = useId();
   const defaultModeSelectId = useId();
@@ -35,6 +39,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
   const [savedToast, setSavedToast] = useState<boolean>(false);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -49,17 +54,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Request browser notification permission
   const handleRequestNotification = async () => {
     if (typeof Notification === 'undefined') {
-      alert('Trình duyệt của bạn không hỗ trợ Web Notifications.');
+      setNoticeMessage('Trình duyệt của bạn hiện không hỗ trợ Web Notifications.');
+      setTimeout(() => setNoticeMessage(null), 4000);
       return;
     }
-    const permission = await Notification.requestPermission();
-    setNotificationStatus(permission);
-    if (permission === 'granted') {
-      handleUpdate({ reminderEnabled: true });
-      new Notification('HanziSRS - Nhắc Nhở Ôn Tập', {
-        body: 'Đã kích hoạt tính năng nhắc nhở ôn tập từ vựng hàng ngày!',
-        icon: '/favicon.ico',
-      });
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationStatus(permission);
+      if (permission === 'granted') {
+        handleUpdate({ reminderEnabled: true });
+        new Notification('HanziSRS - Nhắc Nhở Ôn Tập', {
+          body: 'Đã kích hoạt tính năng nhắc nhở ôn tập từ vựng hàng ngày!',
+          icon: '/favicon.ico',
+        });
+      }
+    } catch {
+      setNoticeMessage('Không thể yêu cầu quyền thông báo.');
+      setTimeout(() => setNoticeMessage(null), 4000);
     }
   };
 
@@ -125,6 +136,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 Cấp quyền thông báo trình duyệt
               </button>
+            )}
+
+            {noticeMessage && (
+              <p className="text-[11px] text-amber-800 bg-amber-100/70 p-2 rounded-lg flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{noticeMessage}</span>
+              </p>
             )}
           </div>
 
@@ -241,9 +259,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={onLogin}
-                  className="w-full py-2 px-3 rounded-xl bg-red-700 hover:bg-red-800 text-white font-semibold text-xs shadow-xs transition-colors"
+                  disabled={isLoggingIn}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-red-700 hover:bg-red-800 text-white font-semibold text-xs shadow-xs transition-colors disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Đăng Nhập Bằng Google
+                  {isLoggingIn ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang kết nối Google...</span>
+                    </>
+                  ) : (
+                    <span>Đăng Nhập Bằng Google</span>
+                  )}
                 </button>
               </div>
             )}

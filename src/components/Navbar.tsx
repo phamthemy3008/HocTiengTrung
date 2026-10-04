@@ -10,12 +10,14 @@ import {
   LogOut,
   Wifi,
   WifiOff,
+  RefreshCw,
+  ShieldCheck,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface NavbarProps {
-  activeTab: 'study' | 'decks' | 'dashboard';
-  setActiveTab: (tab: 'study' | 'decks' | 'dashboard') => void;
+  activeTab: 'study' | 'decks' | 'dashboard' | 'admin';
+  setActiveTab: (tab: 'study' | 'decks' | 'dashboard' | 'admin') => void;
   openOcrModal: () => void;
   openSettingsModal: () => void;
   profile: UserProfile;
@@ -24,6 +26,7 @@ interface NavbarProps {
   onLogout: () => void;
   isOnline: boolean;
   dueTodayCount: number;
+  isLoggingIn?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -37,7 +40,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   isOnline,
   dueTodayCount,
+  isLoggingIn = false,
 }) => {
+  const isAdmin = currentUser?.email?.trim().toLowerCase() === 'phamthemy3008@gmail.com';
+
   return (
     <header className="sticky top-0 z-30 bg-[#fdfbf7]/90 backdrop-blur-md border-b border-stone-200/80 transition-all">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
@@ -113,6 +119,23 @@ export const Navbar: React.FC<NavbarProps> = ({
             <BarChart3 className="w-4 h-4 text-emerald-700" />
             <span>Tiến độ</span>
           </button>
+
+          {/* Admin Tab - Only visible to phamthemy3008@gmail.com */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('admin')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                activeTab === 'admin'
+                  ? 'bg-red-700 text-white shadow-xs font-semibold'
+                  : 'text-red-700 hover:text-red-800 hover:bg-red-50 font-medium'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span className="hidden sm:inline">Quản Trị Hệ Thống</span>
+              <span className="sm:hidden">Admin</span>
+            </button>
+          )}
         </nav>
 
         {/* Right Actions: OCR, Streak, Auth, Settings */}
@@ -176,10 +199,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onLogin}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 rounded-lg border border-stone-200 shadow-2xs transition-colors"
+              disabled={isLoggingIn}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 rounded-lg border border-stone-200 shadow-2xs transition-colors disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
-              <LogIn className="w-4 h-4 text-red-700" />
-              <span className="hidden sm:inline">Đăng nhập</span>
+              {isLoggingIn ? (
+                <RefreshCw className="w-4 h-4 text-red-700 animate-spin" />
+              ) : (
+                <LogIn className="w-4 h-4 text-red-700" />
+              )}
+              <span className="hidden sm:inline">
+                {isLoggingIn ? 'Đang vào...' : 'Đăng nhập'}
+              </span>
             </button>
           )}
 

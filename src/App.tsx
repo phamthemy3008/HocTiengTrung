@@ -12,13 +12,15 @@ import { Navbar } from './components/Navbar';
 import { StudySession } from './components/StudySession';
 import { DeckManager } from './components/DeckManager';
 import { Dashboard } from './components/Dashboard';
+import { AdminPanel } from './components/AdminPanel';
 import { OcrModal } from './components/OcrModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DonationModal } from './components/DonationModal';
+import { AuthModal } from './components/AuthModal';
 import { Heart, Coffee } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'study' | 'decks' | 'dashboard'>('study');
+  const [activeTab, setActiveTab] = useState<'study' | 'decks' | 'dashboard' | 'admin'>('study');
   const [decks, setDecks] = useState<Deck[]>(() => storageService.getDecks());
   const [cards, setCards] = useState<Card[]>(() => storageService.getCards());
   const [currentDeckId, setCurrentDeckId] = useState<string>('all');
@@ -27,6 +29,11 @@ export default function App() {
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+
+  // Auth Error & Loading State
+  const [authError, setAuthError] = useState<{ code: string; message: string } | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
 
   // Modals
   const [isOcrOpen, setIsOcrOpen] = useState<boolean>(false);
@@ -127,14 +134,24 @@ export default function App() {
 
   // Google Login Handler
   const handleLogin = async () => {
+    setIsLoggingIn(true);
     try {
       await signInWithPopup(auth, googleProvider);
+      // Login successful: close modal & clear errors
+      setIsAuthModalOpen(false);
+      setAuthError(null);
     } catch (err: any) {
       console.warn('Google sign-in notice:', err);
-      // Helpful fallback note if popup was closed by user
+      // Only display modal if user didn't intentionally close the popup
       if (err.code !== 'auth/popup-closed-by-user') {
-        alert('Đăng nhập Google: ' + (err.message || 'Vui lòng thử lại.'));
+        setAuthError({
+          code: err.code || 'auth/unknown',
+          message: err.message || 'Đã xảy ra lỗi khi đăng nhập với tài khoản Google.',
+        });
+        setIsAuthModalOpen(true);
       }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -247,6 +264,36 @@ export default function App() {
     return newDeck;
   };
 
+  const handleRefreshSystemData = useCallback(() => {
+    fetch('/api/system-vocab')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.decks)) {
+          const localDecks = storageService.getDecks();
+          const localCards = storageService.getCards();
+
+          const deckMap = new Map();
+          data.decks.forEach((d: Deck) => deckMap.set(d.id, d));
+          localDecks.forEach((d: Deck) => {
+            if (!deckMap.has(d.id)) deckMap.set(d.id, d);
+          });
+          const mergedDecks = Array.from(deckMap.values());
+          storageService.saveDecks(mergedDecks);
+          setDecks(mergedDecks);
+
+          if (Array.isArray(data.cards)) {
+            const cardMap = new Map();
+            localCards.forEach((c: Card) => cardMap.set(c.id, c));
+            data.cards.forEach((c: Card) => cardMap.set(c.id, c));
+            const mergedCards = Array.from(cardMap.values());
+            storageService.saveCards(mergedCards);
+            setCards(mergedCards);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const dueTodayCount = storageService.getDashboardStats().dueToday;
 
   return (
@@ -263,6 +310,7 @@ export default function App() {
         onLogout={handleLogout}
         isOnline={isOnline}
         dueTodayCount={dueTodayCount}
+        isLoggingIn={isLoggingIn}
       />
 
       {/* Main Content Area */}
@@ -295,6 +343,10 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <Dashboard onStartStudy={() => setActiveTab('study')} />
         )}
+
+        {activeTab === 'admin' && (
+          <AdminPanel currentUser={currentUser} onRefreshData={handleRefreshSystemData} />
+        )}
       </main>
 
       {/* OCR Modal */}
@@ -314,6 +366,16 @@ export default function App() {
         currentUser={currentUser}
         onLogin={handleLogin}
         onLogout={handleLogout}
+        isLoggingIn={isLoggingIn}
+      />
+
+      {/* Auth Error & Authorization Guidance Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        error={authError}
+        onRetryLogin={handleLogin}
+        isLoggingIn={isLoggingIn}
       />
 
       {/* Zen Footer with Creator note & Donation */}
