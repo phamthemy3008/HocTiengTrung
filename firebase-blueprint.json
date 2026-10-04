@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Information and global learning statistics of the authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "photoURL": { "type": "string", "maxLength": 1024 },
+        "dailyGoal": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "lastStudyDate": { "type": "string", "maxLength": 32 },
+        "totalCardsLearned": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Deck": {
+      "title": "Vocabulary Deck",
+      "description": "A collection of flashcards organized by topic, level, or user interest.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 512 },
+        "color": { "type": "string", "maxLength": 32 },
+        "cardCount": { "type": "integer" },
+        "isPublic": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "Card": {
+      "title": "Flashcard & SRS State",
+      "description": "A Chinese vocabulary card with Hanzi, Pinyin, Vietnamese meaning, and SM-2 spaced repetition state.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "deckId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "hanzi": { "type": "string", "maxLength": 64 },
+        "pinyin": { "type": "string", "maxLength": 128 },
+        "meaning": { "type": "string", "maxLength": 512 },
+        "exampleSentence": { "type": "string", "maxLength": 512 },
+        "examplePinyin": { "type": "string", "maxLength": 512 },
+        "exampleMeaning": { "type": "string", "maxLength": 512 },
+        "interval": { "type": "integer" },
+        "repetitions": { "type": "integer" },
+        "easeFactor": { "type": "number" },
+        "dueDate": { "type": "string", "maxLength": 64 },
+        "lastReviewed": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "maxLength": 32, "enum": ["new", "learning", "review", "mastered"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "deckId", "userId", "hanzi", "meaning"]
+    },
+    "StudyLog": {
+      "title": "Study Log",
+      "description": "Record of a card review session for spaced repetition analytics.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "cardId": { "type": "string", "maxLength": 128 },
+        "deckId": { "type": "string", "maxLength": 128 },
+        "rating": { "type": "integer" },
+        "mode": { "type": "string", "maxLength": 64 },
+        "date": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "cardId", "rating", "mode"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile and streak statistics"
+    },
+    "/decks/{deckId}": {
+      "schema": { "$ref": "#/entities/Deck" },
+      "description": "Vocabulary decks owned by users"
+    },
+    "/cards/{cardId}": {
+      "schema": { "$ref": "#/entities/Card" },
+      "description": "Flashcards with SRS state owned by users"
+    },
+    "/study_logs/{logId}": {
+      "schema": { "$ref": "#/entities/StudyLog" },
+      "description": "Daily study review logs for progress dashboard"
+    }
+  }
+}

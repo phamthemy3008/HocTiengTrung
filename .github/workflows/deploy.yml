@@ -1,0 +1,30 @@
+name: Auto Deploy to LXC on New Release
+
+on:
+  release:
+    types: [published] # Tự động chạy khi có Release mới được Publish trên GitHub
+  workflow_dispatch:   # Cho phép bạn bấm nút Run workflow thủ công bất cứ lúc nào
+
+jobs:
+  deploy:
+    runs-on: self-hosted # Chạy trực tiếp trên LXC của bạn thông qua GitHub Runner
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Build Web Application
+        run: npm run build
+
+      - name: Update Production Website & Reload Nginx
+        run: |
+          sudo cp -r dist/* /var/www/HocTiengTrung/dist/
+          sudo systemctl reload nginx
+          echo "🚀 Đã cập nhật thành công bản Release: ${{ github.event.release.tag_name || 'Manual' }}"

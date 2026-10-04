@@ -1,0 +1,11 @@
+{
+  "name": "HanziSRS - Học Từ Vựng & Luyện Viết Chữ Hán",
+  "description": "Ứng dụng flashcard học từ vựng tiếng Trung với thuật toán Spaced Repetition (SM-2), luyện viết chữ Hán trên ô mễ tự, kiểm tra phát âm, OCR quét ảnh và đồng bộ đám mây.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
