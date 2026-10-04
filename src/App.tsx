@@ -20,7 +20,7 @@ import { AuthModal } from './components/AuthModal';
 import { UserGuideModal } from './components/UserGuideModal';
 import { FeedbackModal } from './components/FeedbackModal';
 import { WeakCardsModal } from './components/WeakCardsModal';
-import { Heart, Coffee, Ban, LogOut } from 'lucide-react';
+import { Heart, Coffee, Ban, LogOut, Github, Globe } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'study' | 'decks' | 'dashboard' | 'admin'>('study');
@@ -521,17 +521,34 @@ export default function App() {
               千里之行，始于足下
             </span>
             <span className="text-[11px] text-stone-400 hidden sm:inline">•</span>
-            <span className="text-[11px] text-stone-500 font-vietnamese">
-              Học Tiếng Trung — Ôn Tập Ngắt Quãng & Luyện Viết Chữ Hán
-            </span>
+            <a
+              href="https://tiengtrung.thuongmy.info/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-stone-600 hover:text-red-700 font-vietnamese flex items-center gap-1 transition-colors"
+            >
+              <Globe className="w-3 h-3 text-red-700" />
+              <span>tiengtrung.thuongmy.info</span>
+            </a>
           </div>
 
-          {/* Author note & Donation button */}
+          {/* Author note, GitHub link & Donation button */}
           <div className="flex items-center gap-3 flex-wrap justify-center font-vietnamese">
             <span className="text-xs text-stone-600 flex items-center gap-1">
               <span>Tác giả:</span>
               <strong className="text-stone-900 font-bold">Phạm Thế Mỹ</strong>
             </span>
+
+            {/* GitHub Repo link */}
+            <a
+              href="https://github.com/phamthemy3008/HocTiengTrung"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 transition-colors"
+            >
+              <Github className="w-3.5 h-3.5 text-stone-900" />
+              <span>GitHub</span>
+            </a>
 
             {/* Donation / Support Button */}
             <button

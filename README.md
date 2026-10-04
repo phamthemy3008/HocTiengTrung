@@ -1,16 +1,22 @@
 # 🏮 HanziSRS - Ứng Dụng Học Từ Vựng & Luyện Viết Chữ Hán
 
-Ứng dụng web học tiếng Trung hiện đại kết hợp phương pháp Lặp lại ngắt quãng (Spaced Repetition System - SM-2), tập viết chữ Hán theo chuẩn bút thuận trên ô Mễ tự (米字格), kiểm tra phát âm giọng nói và nhận diện thẻ từ vựng qua ảnh chụp (OCR).
+[![Trang Web Trực Tuyến](https://img.shields.io/badge/Website-tiengtrung.thuongmy.info-red?style=for-the-badge&logo=google-chrome&logoColor=white)](https://tiengtrung.thuongmy.info/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-phamthemy3008%2FHocTiengTrung-black?style=for-the-badge&logo=github&logoColor=white)](https://github.com/phamthemy3008/HocTiengTrung)
+[![Bản Quyền](https://img.shields.io/badge/Tác_Giả-Phạm_Thế_Mỹ-blue?style=for-the-badge)](https://tiengtrung.thuongmy.info/)
+
+> 🌐 **Trang Web Trực Tuyến Chính Thức:** [https://tiengtrung.thuongmy.info/](https://tiengtrung.thuongmy.info/)
+> 📂 **Mã Nguồn GitHub:** [https://github.com/phamthemy3008/HocTiengTrung](https://github.com/phamthemy3008/HocTiengTrung)
+
+Ứng dụng web học tiếng Trung hiện đại kết hợp phương pháp Lặp lại ngắt quãng (Spaced Repetition System - SM-2), tập viết chữ Hán theo chuẩn bút thuận trên ô Mễ tự (米字格), kiểm tra phát âm giọng nói AI và nhận diện thẻ từ vựng qua ảnh chụp (OCR).
 
 - **Tác giả:** Phạm Thế Mỹ
-- **Hotline / MoMo / MB Bank:** `0987830111`
+- **Hotline / Zalo / MoMo / MB Bank:** `0987830111`
+- **Tên miền website:** [https://tiengtrung.thuongmy.info/](https://tiengtrung.thuongmy.info/)
 - **Công nghệ:** React 19, TypeScript, Vite, Tailwind CSS v4, HanziWriter, Firebase Auth & Firestore, Web Speech API.
 
 ---
 
-## 🚀 Hướng Dẫn Đưa Lên GitHub
-
-### Bước 1: Khởi tạo Git & Đẩy code lên GitHub
+## 🚀 Hướng Dẫn Đẩy Mã Nguồn Lên GitHub
 
 Mở Terminal tại thư mục dự án và thực hiện các lệnh sau:
 
@@ -21,64 +27,52 @@ git init
 # 2. Thêm toàn bộ file vào git
 git add .
 
-# 3. Tạo commit đầu tiên
-git commit -m "feat: Khoi tao du an HanziSRS hoc tieng Trung"
+# 3. Tạo commit
+git commit -m "feat: Cap nhat giao dien va tinh nang Hoc Tieng Trung"
 
 # 4. Đổi tên branch chính thành main
 git branch -M main
 
-# 5. Liên kết với Repository trên GitHub của bạn
-# (Thay your-username và your-repo-name bằng tài khoản GitHub của bạn)
-git remote add origin https://github.com/your-username/your-repo-name.git
+# 5. Liên kết trực tiếp với Repository GitHub chính thức
+git remote add origin https://github.com/phamthemy3008/HocTiengTrung.git
 
-# 6. Đẩy mã nguồn lên GitHub
-git push -u origin main
+# 6. Đẩy toàn bộ mã nguồn lên GitHub
+git push -u origin main --force
 ```
 
 ---
 
-## 🌐 Hướng Dẫn Deploy Lên Host Cá Nhân
+## 🌐 Hướng Dẫn Deploy Lên Domain tiengtrung.thuongmy.info
 
-Dự án được xây dựng bằng **Vite (React SPA)**, khi build sẽ tạo ra thư mục `dist/` chứa toàn bộ mã nguồn tĩnh (HTML, JS, CSS, Asset). Bạn có thể host ở bất kỳ dịch vụ nào!
+Dự án được xây dựng bằng **Vite (React SPA)**, khi build sẽ tạo ra thư mục `dist/` chứa toàn bộ mã nguồn tĩnh (HTML, JS, CSS, Asset).
 
-### Cách 1: Deploy lên Vercel / Netlify (Khuyên dùng - Miễn phí & Cực nhanh)
-1. Đăng nhập vào [Vercel](https://vercel.com) hoặc [Netlify](https://netlify.com) bằng tài khoản GitHub.
-2. Chọn **"Add New Project"** -> Chọn Repository GitHub của bạn.
+### Cách 1: Deploy lên Vercel / Netlify / Cloudflare Pages (Miễn phí & Tự động kết nối Domain)
+1. Đăng nhập vào [Vercel](https://vercel.com) bằng tài khoản GitHub.
+2. Chọn **"Add New Project"** -> Chọn Repo `phamthemy3008/HocTiengTrung`.
 3. Cấu hình Build:
    - **Framework Preset:** `Vite`
    - **Build Command:** `npm run build`
    - **Output Directory:** `dist`
-4. Bấm **"Deploy"**. Dự án sẽ chạy tự động và cấp cho bạn tên miền miễn phí dạng `ten-du-an.vercel.app` (có HTTPS). Mỗi lần bạn `git push`, web sẽ tự động cập nhật!
+4. Bấm **"Deploy"**.
+5. Vào mục **Settings -> Domains** -> Thêm tên miền riêng: `tiengtrung.thuongmy.info`. Trỏ bản ghi DNS CNAME theo hướng dẫn của Vercel.
 
 ---
 
-### Cách 2: Deploy lên VPS riêng (Ubuntu / Nginx)
+### Cách 2: Deploy lên VPS / Server riêng (Nginx)
 
-1. **Build dự án trên máy hoặc VPS:**
+1. **Build dự án trên VPS:**
    ```bash
    npm install
    npm run build
    ```
-   Sau lệnh này, thư mục `dist/` sẽ xuất hiện chứa toàn bộ website.
 
-2. **Cài đặt Nginx:**
-   ```bash
-   sudo apt update
-   sudo apt install nginx -y
-   ```
-
-3. **Copy thư mục `dist/` vào thư mục web server:**
-   ```bash
-   sudo cp -r dist/* /var/www/hanzisrs/
-   ```
-
-4. **Cấu hình Nginx (`/etc/nginx/sites-available/hanzisrs`):**
+2. **Cấu hình Nginx (`/etc/nginx/sites-available/tiengtrung.thuongmy.info`):**
    ```nginx
    server {
        listen 80;
-       server_name yourdomain.com www.yourdomain.com;
+       server_name tiengtrung.thuongmy.info;
 
-       root /var/www/hanzisrs;
+       root /var/www/tiengtrung;
        index index.html;
 
        location / {
@@ -87,52 +81,21 @@ Dự án được xây dựng bằng **Vite (React SPA)**, khi build sẽ tạo 
    }
    ```
 
-5. **Kích hoạt và khởi động lại Nginx:**
+3. **Kích hoạt Nginx và cấp SSL HTTPS miễn phí:**
    ```bash
-   sudo ln -s /etc/nginx/sites-available/hanzisrs /etc/nginx/sites-enabled/
+   sudo ln -s /etc/nginx/sites-available/tiengtrung.thuongmy.info /etc/nginx/sites-enabled/
    sudo nginx -t
    sudo systemctl restart nginx
-   ```
-
-6. **Cài chứng chỉ SSL miễn phí (HTTPS):**
-   ```bash
-   sudo apt install certbot python3-certbot-nginx -y
-   sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+   sudo certbot --nginx -d tiengtrung.thuongmy.info
    ```
 
 ---
 
-### Cách 3: Deploy lên Hosting dùng cPanel / DirectAdmin
+## ☕ Ủng Hộ Tác Giả (Donate)
 
-1. Chạy `npm run build` trên máy tính của bạn.
-2. Nén toàn bộ các file bên trong thư mục `dist/` thành file `dist.zip`.
-3. Đăng nhập vào cPanel -> **File Manager** -> Mở thư mục `public_html`.
-4. Upload file `dist.zip` lên và bấm **Extract** (Giải nén).
-5. Tạo hoặc chỉnh sửa file `.htaccess` trong `public_html` với nội dung sau (để tránh lỗi 404 khi tải lại trang SPA):
-   ```apache
-   <IfModule mod_rewrite.c>
-     RewriteEngine On
-     RewriteBase /
-     RewriteRule ^index\.html$ - [L]
-     RewriteCond %{REQUEST_FILENAME} !-f
-     RewriteCond %{REQUEST_FILENAME} !-d
-     RewriteRule . /index.html [L]
-   </IfModule>
-   ```
-
----
-
-## 🛠️ Biến Môi Trường (.env)
-
-Tạo file `.env` nếu bạn muốn kích hoạt tính năng trích xuất OCR tự động từ hình ảnh bằng Google Gemini API:
-```env
-VITE_GEMINI_API_KEY="AIzaSy..."
-```
-
----
-
-## ☕ Ủng Hộ Tác Giả (Donation)
-
-- **Chủ tài khoản:** PHAM THE MY
-- **MB Bank:** `0987830111`
+Nếu bạn thấy ứng dụng hữu ích cho việc học tập tiếng Trung, hãy ủng hộ tác giả một tách cà phê:
+- **Tên tài khoản:** PHAM THE MY
+- **Số tài khoản (MB Bank):** `0987830111`
 - **Ví MoMo:** `0987830111`
+
+*Chúc bạn học tập tiếng Trung thật tốt và thành công!*

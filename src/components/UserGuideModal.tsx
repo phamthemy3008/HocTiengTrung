@@ -14,6 +14,8 @@ import {
   Flame,
   Volume2,
   ShieldCheck,
+  Github,
+  Globe,
 } from 'lucide-react';
 
 interface UserGuideModalProps {
@@ -345,10 +347,28 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ isOpen, onClose 
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3.5 bg-stone-50 border-t border-stone-200 flex items-center justify-between">
-          <span className="text-[11px] text-stone-500">
-            Chúc bạn học tiếng Trung ngày càng tiến bộ!
-          </span>
+        <div className="px-5 py-3.5 bg-stone-50 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="flex items-center gap-3 text-[11px] text-stone-500">
+            <a
+              href="https://tiengtrung.thuongmy.info/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 hover:text-red-700 transition-colors"
+            >
+              <Globe className="w-3.5 h-3.5 text-red-700" />
+              <span>tiengtrung.thuongmy.info</span>
+            </a>
+            <span>•</span>
+            <a
+              href="https://github.com/phamthemy3008/HocTiengTrung"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 hover:text-stone-900 transition-colors"
+            >
+              <Github className="w-3.5 h-3.5 text-stone-800" />
+              <span>GitHub</span>
+            </a>
+          </div>
           <button
             type="button"
             onClick={onClose}

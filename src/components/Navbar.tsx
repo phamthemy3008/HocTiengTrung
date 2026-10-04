@@ -15,6 +15,7 @@ import {
   HelpCircle,
   MessageSquarePlus,
   AlertTriangle,
+  Github,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -203,6 +204,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Camera className="w-4 h-4 text-stone-600" />
             <span className="hidden md:inline">Quét OCR</span>
           </button>
+
+          {/* GitHub Repo Link */}
+          <a
+            href="https://github.com/phamthemy3008/HocTiengTrung"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Mã nguồn GitHub (phamthemy3008/HocTiengTrung)"
+            className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200 transition-colors shadow-2xs"
+          >
+            <Github className="w-4 h-4 text-stone-900" />
+            <span className="hidden xl:inline">GitHub</span>
+          </a>
 
           {/* Streak Badge */}
           <div
