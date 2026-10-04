@@ -92,3 +92,14 @@ export interface PronunciationEvaluation {
     toneName?: string; // Tên thanh điệu
   };
 }
+
+export interface FeedbackItem {
+  id: string;
+  name?: string;
+  email?: string;
+  category?: 'content' | 'bug' | 'feature' | 'other';
+  message: string;
+  status: 'unread' | 'read' | 'resolved';
+  createdAt: string;
+}
+

@@ -21,10 +21,13 @@ import {
   X,
   FileCode,
   Sparkles,
+  Cloud,
+  UploadCloud,
 } from 'lucide-react';
 import { Card, Deck } from '../types';
 import { parseAnkiOrText } from '../services/ankiImporter';
 import { speechService } from '../services/speech';
+import { storageService } from '../services/storage';
 
 export const ADMIN_EMAIL = 'phamthemy3008@gmail.com';
 
@@ -83,10 +86,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onRefreshDa
   const [tagToRename, setTagToRename] = useState<string | null>(null);
   const [newTagName, setNewTagName] = useState<string>('');
 
-  // Fetch current system vocabulary from server
+  // Fetch current system vocabulary (first from Cloud Firestore, fallback to server)
   const fetchSystemData = async () => {
     setIsLoading(true);
     try {
+      // 1. Try Cloud Firestore first
+      const cloudData = await storageService.fetchSystemVocabFromCloud();
+      if (cloudData && cloudData.deck && Array.isArray(cloudData.cards) && cloudData.cards.length > 0) {
+        setSystemDecks([cloudData.deck]);
+        setSystemCards(cloudData.cards);
+        setIsLoading(false);
+        return;
+      }
+
+      // 2. Fallback to server API
       const res = await fetch('/api/system-vocab');
       const data = await res.json();
       if (data.success) {
@@ -107,35 +120,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onRefreshDa
     }
   }, [isAdmin]);
 
-  // Save changes to backend server
+  // Save changes to Cloud Firestore AND backend server
   const handleSaveToServer = async (newDecks = systemDecks, newCards = systemCards) => {
     if (!currentUser?.email) return;
     setIsSaving(true);
     setStatusMessage(null);
     try {
-      const res = await fetch('/api/system-vocab', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-email': currentUser.email,
-        },
-        body: JSON.stringify({ decks: newDecks, cards: newCards }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const targetDeck = newDecks[0] || {
+        id: 'deck-hsk1-core',
+        userId: 'system',
+        title: 'Giáo Trình Chuẩn HSK 1 (15 Bài)',
+        description: 'Trọn bộ từ vựng chuẩn HSK 1 với 15 bài học.',
+        color: '#dc2626',
+        cardCount: newCards.length,
+        isPublic: true,
+        isSystem: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // 1. Save to Cloud Firestore
+      const cloudRes = await storageService.saveSystemVocabToCloud(targetDeck, newCards, currentUser);
+
+      // 2. Also sync to backend server for backup
+      try {
+        await fetch('/api/system-vocab', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-email': currentUser.email,
+          },
+          body: JSON.stringify({ decks: newDecks, cards: newCards }),
+        });
+      } catch (serverErr) {
+        console.warn('Backup to server warning:', serverErr);
+      }
+
+      if (cloudRes.success) {
         setStatusMessage({
           type: 'success',
-          text: `Đã lưu thành công ${data.totalDecks} bộ từ & ${data.totalCards} từ vựng hệ thống vào máy chủ!`,
+          text: `Đã lưu thành công ${newCards.length} từ vựng lên Đám mây Cloud Firestore (tài khoản admin ${currentUser.email})! Tất cả người dùng sẽ tự động tải bộ từ mới này.`,
         });
         onRefreshData?.();
       } else {
         setStatusMessage({
           type: 'error',
-          text: data.error || 'Lỗi khi lưu dữ liệu hệ thống.',
+          text: cloudRes.error || 'Lỗi khi lưu lên Đám mây Cloud Firestore.',
         });
       }
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message || 'Lỗi kết nối máy chủ.' });
+      setStatusMessage({ type: 'error', text: err.message || 'Lỗi lưu dữ liệu.' });
     } finally {
       setIsSaving(false);
     }

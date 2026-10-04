@@ -75,9 +75,42 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "cardId", "rating", "mode"]
+    },
+    "SystemVocab": {
+      "title": "System Vocabulary Cloud Document",
+      "description": "System vocabulary deck and cards managed in cloud Firestore by administrator.",
+      "type": "object",
+      "properties": {
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "adminEmail": { "type": "string", "maxLength": 256 }
+      },
+      "required": ["updatedAt"]
+    },
+    "Feedback": {
+      "title": "User Feedback",
+      "description": "Feedback, suggestions, and bug reports submitted by users for the admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "category": { "type": "string", "maxLength": 64 },
+        "message": { "type": "string", "maxLength": 2048 },
+        "status": { "type": "string", "maxLength": 32, "enum": ["unread", "read", "resolved"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "message", "createdAt"]
     }
   },
   "firestore": {
+    "/feedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/Feedback" },
+      "description": "User feedbacks and suggestions readable only by admin"
+    },
+    "/system_vocab/{docId}": {
+      "schema": { "$ref": "#/entities/SystemVocab" },
+      "description": "Central system default vocabulary collections managed in cloud by admin"
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "User profile and streak statistics"

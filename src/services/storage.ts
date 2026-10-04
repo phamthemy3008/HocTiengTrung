@@ -2,10 +2,12 @@ import { Card, Deck, StudyLog, UserProfile, SRSRatingResult } from '../types';
 import { INITIAL_DECKS, INITIAL_CARDS } from '../data/defaultDecks';
 import { calculateSM2, isCardDue } from './srs';
 import { db, auth } from '../firebase/config';
+import { User } from 'firebase/auth';
 import {
   collection,
   doc,
   setDoc,
+  getDoc,
   getDocs,
   query,
   where,
@@ -51,7 +53,20 @@ class StorageService {
         this.saveDecks(INITIAL_DECKS);
         return INITIAL_DECKS;
       }
-      return JSON.parse(data);
+      const parsed: Deck[] = JSON.parse(data);
+      // Prune legacy system deck that was removed
+      const filtered = parsed.filter((d) => d.id !== 'deck-daily-conversations');
+      if (filtered.length !== parsed.length) {
+        this.saveDecks(filtered);
+      }
+      // If no system deck left, restore INITIAL_DECKS
+      const hasSystemDeck = filtered.some((d) => d.isSystem || d.id === 'deck-hsk1-core');
+      if (!hasSystemDeck) {
+        const merged = [...INITIAL_DECKS, ...filtered];
+        this.saveDecks(merged);
+        return merged;
+      }
+      return filtered;
     } catch {
       return INITIAL_DECKS;
     }
@@ -118,27 +133,59 @@ class StorageService {
         return INITIAL_CARDS;
       }
       const parsed: Card[] = JSON.parse(data);
-      let hasChanges = false;
-      const initialMap = new Map(INITIAL_CARDS.map((c) => [c.id, c]));
-      const cleaned = parsed.map((c) => {
-        let updated = c;
-        if (c.meaning === 'uống (trà, nước, cà phê)' || c.meaning?.includes('(trà, nước, cà phê)')) {
-          updated = { ...updated, meaning: 'uống' };
-          hasChanges = true;
-        }
-        if ((!updated.tags || updated.tags.length === 0) && initialMap.has(c.id)) {
-          const defaultC = initialMap.get(c.id);
-          if (defaultC?.tags) {
-            updated = { ...updated, tags: defaultC.tags };
-            hasChanges = true;
-          }
-        }
-        return updated;
-      });
-      if (hasChanges) {
-        this.saveCards(cleaned);
+      // Filter out cards from removed legacy deck
+      let filtered = parsed.filter((c) => c.deckId !== 'deck-daily-conversations');
+      
+      // If user had only the previous 15 sample cards for system deck, migrate to full INITIAL_CARDS
+      const systemCardsInStorage = filtered.filter((c) => c.deckId === 'deck-hsk1-core' || c.userId === 'system');
+      if (systemCardsInStorage.length < 50 && INITIAL_CARDS.length > 50) {
+        const userCustomCards = filtered.filter((c) => c.deckId !== 'deck-hsk1-core' && c.userId !== 'system');
+        filtered = [...INITIAL_CARDS, ...userCustomCards];
+        this.saveCards(filtered);
+        return filtered;
       }
-      return cleaned;
+
+      // Merge fragmented tags into clean canonical tags: "Bài X" and "HSK 1"
+      let tagsModified = false;
+      filtered = filtered.map((c) => {
+        if (!c.tags || c.tags.length === 0) return c;
+        let bàiNum: number | null = null;
+        const otherTags: string[] = [];
+
+        c.tags.forEach((t) => {
+          const m = t.match(/^Bài_?0?(\d+)$/i);
+          if (m) {
+            bàiNum = parseInt(m[1], 10);
+          } else {
+            otherTags.push(t.trim());
+          }
+        });
+
+        const canonicalTags: string[] = [];
+        if (bàiNum !== null) {
+          canonicalTags.push(`Bài ${bàiNum}`);
+        }
+        otherTags.forEach((t) => {
+          if (t && !canonicalTags.includes(t)) {
+            canonicalTags.push(t);
+          }
+        });
+
+        const originalTags = c.tags || [];
+        if (
+          canonicalTags.length !== originalTags.length ||
+          canonicalTags.some((t, i) => t !== originalTags[i])
+        ) {
+          tagsModified = true;
+          return { ...c, tags: canonicalTags };
+        }
+        return c;
+      });
+
+      if (filtered.length !== parsed.length || tagsModified) {
+        this.saveCards(filtered);
+      }
+      return filtered;
     } catch {
       return INITIAL_CARDS;
     }
@@ -484,6 +531,51 @@ class StorageService {
       retentionRate,
       past7Days,
     };
+  }
+
+  // ===== CLOUD SYSTEM VOCABULARY (Admin Cloud Database) =====
+  async fetchSystemVocabFromCloud(): Promise<{ deck: Deck; cards: Card[] } | null> {
+    try {
+      const snap = await getDoc(doc(db, 'system_vocab', 'hsk1'));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && data.deck && Array.isArray(data.cards) && data.cards.length > 0) {
+          return {
+            deck: data.deck as Deck,
+            cards: data.cards as Card[],
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Notice loading system vocab from Cloud Firestore:', e);
+    }
+    return null;
+  }
+
+  async saveSystemVocabToCloud(
+    deck: Deck,
+    cards: Card[],
+    user?: User | null
+  ): Promise<{ success: boolean; error?: string }> {
+    const email = user?.email?.trim().toLowerCase();
+    if (email !== 'phamthemy3008@gmail.com') {
+      return { success: false, error: 'Chỉ tài khoản admin phamthemy3008@gmail.com mới có quyền lưu lên Đám mây hệ thống.' };
+    }
+
+    try {
+      await setDoc(doc(db, 'system_vocab', 'hsk1'), {
+        id: 'hsk1',
+        deck,
+        cards,
+        cardCount: cards.length,
+        adminEmail: email,
+        updatedAt: new Date().toISOString(),
+      });
+      return { success: true };
+    } catch (err: any) {
+      console.error('Lỗi khi lưu lên Cloud Firestore:', err);
+      return { success: false, error: err.message || 'Lỗi khi lưu lên Đám mây.' };
+    }
   }
 }
 

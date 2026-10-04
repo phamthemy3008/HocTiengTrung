@@ -103,6 +103,54 @@ app.post('/api/system-vocab/reset', (req, res) => {
   }
 });
 
+// Feedback in-memory & file store for backup
+const FEEDBACK_FILE = path.resolve(process.cwd(), 'src/data/userFeedback.json');
+let feedbacks: any[] = [];
+try {
+  if (fs.existsSync(FEEDBACK_FILE)) {
+    feedbacks = JSON.parse(fs.readFileSync(FEEDBACK_FILE, 'utf-8'));
+  }
+} catch {}
+
+function saveFeedbacksToFile() {
+  try {
+    fs.writeFileSync(FEEDBACK_FILE, JSON.stringify(feedbacks, null, 2), 'utf-8');
+  } catch {}
+}
+
+app.get('/api/feedback', (_req, res) => {
+  res.json({ success: true, feedbacks });
+});
+
+app.post('/api/feedback', (req, res) => {
+  const item = req.body;
+  if (!item || !item.message) {
+    return res.status(400).json({ success: false, error: 'Thiếu nội dung góp ý' });
+  }
+  feedbacks.unshift(item);
+  saveFeedbacksToFile();
+  console.log(`📬 [GÓP Ý MỚI TỪ NGƯỜI DÙNG]: "${item.message.substring(0, 60)}..." (Người gửi: ${item.name || item.email || 'Ẩn danh'})`);
+  res.json({ success: true, item });
+});
+
+app.patch('/api/feedback/:id', (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const idx = feedbacks.findIndex((f) => f.id === id);
+  if (idx >= 0) {
+    feedbacks[idx].status = status;
+    saveFeedbacksToFile();
+  }
+  res.json({ success: true });
+});
+
+app.delete('/api/feedback/:id', (req, res) => {
+  const { id } = req.params;
+  feedbacks = feedbacks.filter((f) => f.id !== id);
+  saveFeedbacksToFile();
+  res.json({ success: true });
+});
+
 // Serve frontend in production
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));

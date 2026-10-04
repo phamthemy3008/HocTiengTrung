@@ -20,6 +20,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'phamthemy3008@gmail.com';
+    }
+
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -87,6 +91,18 @@ service cloud.firestore {
              data.mode is string && data.mode.size() <= 64;
     }
 
+    function isValidFeedback(data) {
+      return data.keys().hasAll(['id', 'message', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'name', 'email', 'category', 'message', 'status', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.message is string && data.message.size() > 0 && data.message.size() <= 2048 &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 64)) &&
+             (!('status' in data) || (data.status in ['unread', 'read', 'resolved']));
+    }
+
     // 2. Collection Rules
     match /users/{userId} {
       allow get: if isOwner(userId);
@@ -118,6 +134,20 @@ service cloud.firestore {
       // Study logs are immutable
       allow update: if false;
       allow delete: if isVerified() && isValidId(logId) && existing().userId == request.auth.uid;
+    }
+
+    // System Vocabulary (Central shared vocabulary in Cloud Firestore managed by admin)
+    match /system_vocab/{docId} {
+      // Anyone can read system vocabulary
+      allow get, list: if true;
+      // Only admin phamthemy3008@gmail.com can create, update, or delete
+      allow write: if isAdmin();
+    }
+
+    // User Feedback (Submissions from users, read/managed by admin)
+    match /feedback/{feedbackId} {
+      allow create: if isValidFeedback(incoming());
+      allow read, update, delete: if isAdmin();
     }
   }
 }

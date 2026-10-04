@@ -56,36 +56,70 @@ export default function App() {
 
   // Firebase Auth listener & Cloud Sync
   useEffect(() => {
-    // 1. Fetch latest system vocabulary from server
-    fetch('/api/system-vocab')
-      .then((res) => res.json())
-      .then((data) => {
+    // 1. Fetch latest system vocabulary: Priority 1 from Cloud Firestore (Admin Cloud DB), fallback to server API
+    const syncSystemVocab = async () => {
+      try {
+        const cloudVocab = await storageService.fetchSystemVocabFromCloud();
+        if (cloudVocab && cloudVocab.deck && Array.isArray(cloudVocab.cards) && cloudVocab.cards.length > 0) {
+          const localDecks = storageService.getDecks();
+          const localCards = storageService.getCards();
+          const userCustomDecks = localDecks.filter(
+            (d: Deck) => !d.isSystem && d.userId !== 'system' && d.id !== 'deck-daily-conversations' && d.id !== 'deck-hsk1-core'
+          );
+          const mergedDecks = [cloudVocab.deck, ...userCustomDecks];
+          storageService.saveDecks(mergedDecks);
+          setDecks(mergedDecks);
+
+          const systemCardIds = new Set(cloudVocab.cards.map((c: Card) => c.id));
+          const userCustomCards = localCards.filter(
+            (c: Card) =>
+              !systemCardIds.has(c.id) &&
+              c.userId !== 'system' &&
+              c.deckId !== 'deck-daily-conversations' &&
+              c.deckId !== 'deck-hsk1-core'
+          );
+          const mergedCards = [...cloudVocab.cards, ...userCustomCards];
+          storageService.saveCards(mergedCards);
+          setCards(mergedCards);
+          return;
+        }
+      } catch (err) {
+        console.warn('Notice loading from Cloud Firestore:', err);
+      }
+
+      // Fallback: server API
+      try {
+        const res = await fetch('/api/system-vocab');
+        const data = await res.json();
         if (data.success && Array.isArray(data.decks) && data.decks.length > 0) {
           const localDecks = storageService.getDecks();
           const localCards = storageService.getCards();
 
-          const deckMap = new Map();
-          data.decks.forEach((d: Deck) => deckMap.set(d.id, d));
-          localDecks.forEach((d: Deck) => {
-            if (!deckMap.has(d.id)) deckMap.set(d.id, d);
-          });
-          const mergedDecks = Array.from(deckMap.values());
+          const userCustomDecks = localDecks.filter(
+            (d: Deck) => !d.isSystem && d.userId !== 'system' && d.id !== 'deck-daily-conversations' && d.id !== 'deck-hsk1-core'
+          );
+          const mergedDecks = [...data.decks, ...userCustomDecks];
           storageService.saveDecks(mergedDecks);
           setDecks(mergedDecks);
 
           if (Array.isArray(data.cards) && data.cards.length > 0) {
-            const cardMap = new Map();
-            localCards.forEach((c: Card) => cardMap.set(c.id, c));
-            data.cards.forEach((c: Card) => {
-              if (!cardMap.has(c.id)) cardMap.set(c.id, c);
-            });
-            const mergedCards = Array.from(cardMap.values());
+            const systemCardIds = new Set(data.cards.map((c: Card) => c.id));
+            const userCustomCards = localCards.filter(
+              (c: Card) =>
+                !systemCardIds.has(c.id) &&
+                c.userId !== 'system' &&
+                c.deckId !== 'deck-daily-conversations' &&
+                c.deckId !== 'deck-hsk1-core'
+            );
+            const mergedCards = [...data.cards, ...userCustomCards];
             storageService.saveCards(mergedCards);
             setCards(mergedCards);
           }
         }
-      })
-      .catch(() => {});
+      } catch {}
+    };
+
+    syncSystemVocab();
 
     // 2. Auth listener
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
