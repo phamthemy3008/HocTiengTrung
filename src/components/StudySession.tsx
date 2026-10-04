@@ -146,6 +146,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [evalResult, setEvalResult] = useState<PronunciationEvaluation | null>(null);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const [isPlayingRecordedAudio, setIsPlayingRecordedAudio] = useState<boolean>(false);
+  const activeUserAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceRecorderRef = useRef<{ stop: () => void } | null>(null);
@@ -267,14 +268,37 @@ export const StudySession: React.FC<StudySessionProps> = ({
     }
   };
 
-  // Play user's recorded audio
+  // Play user's recorded audio (iOS Safari & Chrome compatible)
   const handlePlayUserAudio = () => {
     if (!recordedAudioUrl) return;
-    const audio = new Audio(recordedAudioUrl);
-    setIsPlayingRecordedAudio(true);
-    audio.onended = () => setIsPlayingRecordedAudio(false);
-    audio.onerror = () => setIsPlayingRecordedAudio(false);
-    audio.play().catch(() => setIsPlayingRecordedAudio(false));
+    try {
+      if (activeUserAudioRef.current) {
+        activeUserAudioRef.current.pause();
+        activeUserAudioRef.current.src = '';
+      }
+      const audio = new Audio();
+      activeUserAudioRef.current = audio;
+      audio.setAttribute('playsinline', 'true');
+      audio.src = recordedAudioUrl;
+      setIsPlayingRecordedAudio(true);
+
+      audio.onended = () => setIsPlayingRecordedAudio(false);
+      audio.onerror = (e) => {
+        console.warn('Recorded audio playback error on iOS:', e);
+        setIsPlayingRecordedAudio(false);
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn('Audio play promise error:', err);
+          setIsPlayingRecordedAudio(false);
+        });
+      }
+    } catch (e) {
+      console.warn('Audio play exception:', e);
+      setIsPlayingRecordedAudio(false);
+    }
   };
 
   // Flip card / reveal answer
@@ -326,7 +350,130 @@ export const StudySession: React.FC<StudySessionProps> = ({
     advanceToNextCard();
   };
 
-  // Toggle Voice Recording with Gemini AI Pronunciation Check
+  // Helper to convert Blob to Base64
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  // Evaluate speech transcript & audio recording with Gemini AI backend
+  const evaluateVoice = async (transcript: string, audioBlobOverride?: Blob) => {
+    if (!currentCard) return;
+    setIsEvaluating(true);
+    try {
+      let audioBase64: string | undefined;
+      let audioMimeType = 'audio/webm';
+
+      const blobToSend =
+        audioBlobOverride ||
+        (audioChunksRef.current.length > 0
+          ? new Blob(audioChunksRef.current, {
+              type: audioRecorderRef.current?.mimeType || 'audio/webm',
+            })
+          : null);
+
+      if (blobToSend && blobToSend.size > 0) {
+        audioMimeType = blobToSend.type || 'audio/webm';
+        audioBase64 = await blobToBase64(blobToSend);
+      }
+
+      const res = await fetch('/api/evaluate-pronunciation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetHanzi: currentCard.hanzi,
+          targetPinyin: currentCard.pinyin,
+          recognizedText: transcript,
+          audioBase64,
+          audioMimeType,
+        }),
+      });
+
+      if (res.ok) {
+        const responseData = await res.json();
+        const data: PronunciationEvaluation = responseData.evaluation || responseData;
+        setEvalResult(data);
+        if (data.isCorrect || data.accuracyScore >= 80) {
+          confetti({
+            particleCount: 50,
+            spread: 50,
+            origin: { y: 0.7 },
+            colors: ['#10b981', '#3b82f6', '#f59e0b'],
+          });
+        }
+      } else {
+        // Fallback heuristic evaluation with structured syllables & mistake
+        const isMatch = transcript.trim().toLowerCase().includes(currentCard.hanzi.trim().toLowerCase());
+        const chars = currentCard.hanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
+        const pinyins = (currentCard.pinyin || '').split(/\s+/);
+        setEvalResult({
+          accuracyScore: isMatch ? 90 : 65,
+          pronunciationScore: isMatch ? 92 : 68,
+          toneScore: isMatch ? 88 : 60,
+          recognizedText: transcript,
+          toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần nhấn đúng cao độ thanh điệu hơn.',
+          tips: 'Hãy mở rộng khẩu hình và bật hơi dứt khoát theo chuẩn người bản xứ.',
+          isCorrect: isMatch,
+          syllableDetails: chars.map((char, i) => ({
+            char,
+            pinyin: pinyins[i] || '',
+            score: isMatch ? 92 : 65,
+            status: isMatch ? 'perfect' : 'good',
+          })),
+          mistakeList: isMatch
+            ? []
+            : [
+                {
+                  code: 'Lệch âm',
+                  reason: `Âm thu được (${transcript || 'chưa rõ'}) chưa khớp chuẩn với "${currentCard.hanzi}" (${currentCard.pinyin})`,
+                },
+              ],
+          mistakeDetail: isMatch
+            ? 'Phát âm chuẩn xác!'
+            : `Học viên đọc "${transcript || 'chưa rõ âm'}", cần đọc đúng "${currentCard.hanzi}" (${currentCard.pinyin}).`,
+          correctionGuide: 'Hãy nghe kỹ mẫu giọng bản xứ và đọc lại to, rõ ràng.',
+        });
+      }
+    } catch {
+      const isMatch = transcript.trim().toLowerCase().includes(currentCard.hanzi.trim().toLowerCase());
+      const chars = currentCard.hanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
+      const pinyins = (currentCard.pinyin || '').split(/\s+/);
+      setEvalResult({
+        accuracyScore: isMatch ? 90 : 65,
+        pronunciationScore: isMatch ? 92 : 68,
+        toneScore: isMatch ? 88 : 60,
+        recognizedText: transcript,
+        toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần phát âm rõ ràng hơn.',
+        tips: 'Hãy nghe kỹ âm chuẩn bản xứ trước khi đọc.',
+        isCorrect: isMatch,
+        syllableDetails: chars.map((char, i) => ({
+          char,
+          pinyin: pinyins[i] || '',
+          score: isMatch ? 92 : 65,
+          status: isMatch ? 'perfect' : 'good',
+        })),
+        mistakeList: isMatch
+          ? []
+          : [
+              {
+                code: 'Cần cải thiện',
+                reason: `Âm thu được (${transcript || 'chưa rõ'}) chưa khớp hoàn toàn với "${currentCard.hanzi}"`,
+              },
+            ],
+      });
+    } finally {
+      setIsEvaluating(false);
+    }
+  };
+
+  // Toggle Voice Recording with Gemini AI Pronunciation Check (PC Bluetooth & Mobile compatible)
   const handleToggleVoiceRecord = async () => {
     if (isListening) {
       // Stop recording
@@ -337,6 +484,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
         audioRecorderRef.current.stop();
       }
       setIsListening(false);
+      const textToEvaluate = micTranscriptRef.current;
+      evaluateVoice(textToEvaluate);
       return;
     }
 
@@ -348,10 +497,37 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setEvalResult(null);
     audioChunksRef.current = [];
 
-    // 1. Capture user microphone for playback
+    // 1. Capture user microphone for playback (Supports PC Bluetooth Headsets & Mobile)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      let stream: MediaStream;
+      try {
+        // First try high compatibility Bluetooth & USB microphone constraints
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch {
+        // Fallback for Bluetooth headsets on Windows / PC that reject strict constraints
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      let options: MediaRecorderOptions = {};
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          options = { mimeType: 'audio/webm;codecs=opus' };
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          options = { mimeType: 'audio/webm' };
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          options = { mimeType: 'audio/mp4' };
+        } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+          options = { mimeType: 'audio/aac' };
+        }
+      }
+
+      const mediaRecorder = options.mimeType ? new MediaRecorder(stream, options) : new MediaRecorder(stream);
       audioRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -361,13 +537,19 @@ export const StudySession: React.FC<StudySessionProps> = ({
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const mime = mediaRecorder.mimeType || options.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
         const url = URL.createObjectURL(audioBlob);
         setRecordedAudioUrl(url);
         stream.getTracks().forEach((track) => track.stop());
+
+        // If Web Speech didn't catch transcript (common with PC Bluetooth headsets), evaluate direct audio
+        if (!micTranscriptRef.current && audioChunksRef.current.length > 0) {
+          evaluateVoice('', audioBlob);
+        }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(200); // chunk every 200ms for responsiveness
     } catch (err) {
       console.warn('Microphone stream access notice:', err);
     }
@@ -383,73 +565,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
           if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
             audioRecorderRef.current.stop();
           }
-
-          // Evaluate with Gemini backend API
-          setIsEvaluating(true);
-          try {
-            const res = await fetch('/api/evaluate-pronunciation', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                targetHanzi: currentCard.hanzi,
-                targetPinyin: currentCard.pinyin,
-                recognizedText: transcript,
-              }),
-            });
-
-            if (res.ok) {
-              const data: PronunciationEvaluation = await res.json();
-              setEvalResult(data);
-              if (data.isCorrect || data.accuracyScore >= 80) {
-                confetti({
-                  particleCount: 50,
-                  spread: 50,
-                  origin: { y: 0.7 },
-                  colors: ['#10b981', '#3b82f6', '#f59e0b'],
-                });
-              }
-            } else {
-              // Fallback heuristic evaluation
-              const isMatch = transcript.includes(currentCard.hanzi);
-              setEvalResult({
-                accuracyScore: isMatch ? 90 : 65,
-                pronunciationScore: isMatch ? 92 : 68,
-                toneScore: isMatch ? 88 : 60,
-                recognizedText: transcript,
-                toneFeedback: isMatch ? 'Phát âm tốt!' : 'Cần nhấn đúng thanh điệu hơn.',
-                tips: 'Luyện tập theo người bản xứ.',
-                isCorrect: isMatch,
-                syllableDetails: currentCard.hanzi.split('').map((char, i) => ({
-                  char,
-                  pinyin: (currentCard.pinyin || '').split(/\s+/)[i] || '',
-                  score: isMatch ? 92 : 65,
-                  status: isMatch ? 'perfect' : 'good',
-                })),
-              });
-            }
-          } catch {
-            const isMatch = transcript.includes(currentCard.hanzi);
-            setEvalResult({
-              accuracyScore: isMatch ? 90 : 65,
-              pronunciationScore: isMatch ? 92 : 68,
-              toneScore: isMatch ? 88 : 60,
-              recognizedText: transcript,
-              toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần phát âm rõ ràng hơn.',
-              tips: 'Hãy nghe kỹ âm chuẩn bản xứ trước khi đọc.',
-              isCorrect: isMatch,
-            });
-          } finally {
-            setIsEvaluating(false);
-          }
+          evaluateVoice(transcript);
         }
       },
       (error: any) => {
         setIsListening(false);
-        setIsEvaluating(false);
         if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
           audioRecorderRef.current.stop();
         }
-        console.warn('Speech recognition notice:', error);
+        console.warn('Speech recognition notice (Evaluating via direct audio recording):', error);
       }
     );
 
@@ -1264,12 +1388,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
               {/* DETAILED PHONETIC MISTAKE BREAKDOWN LIST (Matching Screenshot) */}
               {evalResult?.mistakeList && evalResult.mistakeList.length > 0 ? (
                 <div className="space-y-2 animate-in fade-in">
+                  <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">
+                    Phân tích chi tiết lỗi sai:
+                  </div>
                   {evalResult.mistakeList.map((err, i) => (
                     <div
                       key={i}
                       className="p-3 bg-stone-50 rounded-2xl border border-stone-200/80 flex items-center gap-3 text-xs leading-relaxed"
                     >
-                      <span className="px-2 py-1 rounded-lg bg-stone-200 font-mono font-bold text-stone-800 shrink-0 text-xs">
+                      <span className="px-2.5 py-1 rounded-lg bg-red-100 text-red-800 font-mono font-bold shrink-0 text-xs border border-red-200">
                         {err.code}
                       </span>
                       <span className="text-stone-700 font-medium">{err.reason}</span>
@@ -1282,6 +1409,26 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <span>{evalResult.mistakeDetail || 'Phát âm chuẩn xác cả âm tiết và thanh điệu!'}</span>
                 </div>
               ) : null}
+
+              {/* AI Coaching & Pronunciation Tips */}
+              {evalResult && (evalResult.correctionGuide || evalResult.tips) && (
+                <div className="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-200/80 text-xs space-y-1.5 animate-in fade-in">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Mẹo sửa lỗi & Hướng dẫn khẩu hình AI:</span>
+                  </div>
+                  {evalResult.correctionGuide && (
+                    <p className="text-stone-700 leading-relaxed">
+                      👉 <strong>Cách đọc:</strong> {evalResult.correctionGuide}
+                    </p>
+                  )}
+                  {evalResult.tips && (
+                    <p className="text-stone-600 leading-relaxed italic">
+                      💡 <strong>Mẹo:</strong> {evalResult.tips}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* AUDIO CONTROLS (Play User Recording & Play Native Pronunciation) */}
               <div className="flex items-center justify-center gap-3 pt-1">

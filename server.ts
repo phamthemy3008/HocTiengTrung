@@ -48,14 +48,20 @@ app.post('/api/ocr-vocab', async (req, res) => {
   }
 });
 
-// Pronunciation evaluation
+// Pronunciation evaluation (Accepts text transcript, direct audio recording, or both)
 app.post('/api/evaluate-pronunciation', async (req, res) => {
   try {
-    const { targetHanzi, targetPinyin, recognizedText } = req.body;
+    const { targetHanzi, targetPinyin, recognizedText, audioBase64, audioMimeType } = req.body;
     if (!targetHanzi) {
       return res.status(400).json({ error: 'Missing targetHanzi' });
     }
-    const evaluation = await evaluatePronunciation(targetHanzi, targetPinyin || '', recognizedText || '');
+    const evaluation = await evaluatePronunciation(
+      targetHanzi,
+      targetPinyin || '',
+      recognizedText || '',
+      audioBase64,
+      audioMimeType || 'audio/webm'
+    );
     res.json({ success: true, evaluation });
   } catch (err: any) {
     console.error('Pronunciation Evaluation Error:', err);
