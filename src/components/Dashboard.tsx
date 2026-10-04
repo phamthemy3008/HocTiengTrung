@@ -13,6 +13,13 @@ import {
   BookOpen,
   MessageSquarePlus,
   HelpCircle,
+  Cloud,
+  ShieldCheck,
+  LogIn,
+  Smartphone,
+  Laptop,
+  Check,
+  ArrowRight,
 } from 'lucide-react';
 import { storageService } from '../services/storage';
 
@@ -20,12 +27,16 @@ interface DashboardProps {
   onStartStudy: () => void;
   onOpenGuide?: () => void;
   onOpenFeedback?: () => void;
+  currentUser?: any;
+  onLogin?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
   onStartStudy,
   onOpenGuide,
   onOpenFeedback,
+  currentUser,
+  onLogin,
 }) => {
   const stats = storageService.getDashboardStats();
 
@@ -89,6 +100,72 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
+      {/* =========================================================================
+          REQUIREMENT: NẾU USER CHƯA ĐĂNG NHẬP THÌ HIỆN GỢI Ý ĐĂNG NHẬP LƯU TIẾN ĐỘ
+         ========================================================================= */}
+      {!currentUser ? (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50/60 to-red-50 p-5 sm:p-6 rounded-3xl border border-amber-200/90 shadow-sm relative overflow-hidden animate-in fade-in">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-200">
+                <Cloud className="w-6 h-6 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-bold text-stone-900">
+                    Bảo Lưu Tiến Độ & Đồng Bộ Đám Mây (Cloud Sync)
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 text-[10px] font-bold">
+                    Khuyên Dùng
+                  </span>
+                </div>
+                <p className="text-xs text-stone-600 leading-relaxed max-w-2xl">
+                  Bạn đang học với tư cách <strong>Khách (chỉ lưu trên máy này)</strong>. Hãy đăng nhập để lưu trữ vĩnh viễn chuỗi ngày học <strong>Streak</strong>, cấp độ <strong>HSK</strong>, lịch <strong>Spaced Repetition</strong> và học tiếp liền mạch trên cả <strong>điện thoại, máy tính bảng</strong> mọi lúc mọi nơi!
+                </p>
+                <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-stone-500 font-medium">
+                  <span className="flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 font-bold" />
+                    Đồng bộ Google an toàn
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 font-bold" />
+                    Không lo mất dữ liệu khi xóa duyệt web
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 font-bold" />
+                    Hoàn toàn miễn phí 100%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {onLogin && (
+              <button
+                type="button"
+                onClick={onLogin}
+                className="w-full md:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-red-700 hover:bg-red-800 active:scale-98 text-white font-bold text-xs shadow-md shadow-red-200 transition-all hover:scale-102 shrink-0"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Đăng Nhập Lưu Tiến Độ</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-emerald-50/80 p-3.5 px-5 rounded-2xl border border-emerald-200/80 flex items-center justify-between gap-3 text-xs shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="text-emerald-900 font-medium">
+              Tiến độ của bạn đang được tự động sao lưu an toàn trên Cloud cho tài khoản: <strong>{currentUser.email || currentUser.displayName}</strong>
+            </span>
+          </div>
+          <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200 shrink-0">
+            ✓ Đã Đồng Bộ
+          </span>
+        </div>
+      )}
+
       {/* 4 Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         {/* Streak */}
@@ -148,105 +225,87 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-2xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Brain className="w-5 h-5 text-red-700" />
+            <Brain className="w-5 h-5 text-purple-600" />
             <h3 className="font-bold text-stone-900 text-base">
-              Phân Bố Trí Nhớ (Giai Đoạn Lặp Lại SM-2)
+              Phân Phối Cấp Độ Ghi Nhớ (Mastery Stages)
             </h3>
           </div>
-          <span className="text-xs text-stone-500 font-medium">
-            {stats.totalCards} từ vựng
-          </span>
+          <span className="text-xs text-stone-500">Tổng cộng {stats.totalCards} từ</span>
         </div>
 
-        {/* Multi-segment Progress Bar */}
-        <div className="w-full h-3 rounded-full bg-stone-100 flex overflow-hidden">
-          {stats.masteredCount > 0 && (
-            <div
-              style={{ width: `${masteredPct}%` }}
-              title={`Đã thuộc: ${stats.masteredCount} từ (${masteredPct}%)`}
-              className="bg-blue-600 transition-all duration-500"
-            />
-          )}
-          {stats.reviewCount > 0 && (
-            <div
-              style={{ width: `${reviewPct}%` }}
-              title={`Ôn tập định kỳ: ${stats.reviewCount} từ (${reviewPct}%)`}
-              className="bg-emerald-600 transition-all duration-500"
-            />
-          )}
-          {stats.learningCount > 0 && (
-            <div
-              style={{ width: `${learningPct}%` }}
-              title={`Đang học: ${stats.learningCount} từ (${learningPct}%)`}
-              className="bg-amber-500 transition-all duration-500"
-            />
-          )}
-          {stats.newCount > 0 && (
-            <div
-              style={{ width: `${newPct}%` }}
-              title={`Từ mới: ${stats.newCount} từ (${newPct}%)`}
-              className="bg-stone-300 transition-all duration-500"
-            />
-          )}
+        {/* Multi-segmented Progress Bar */}
+        <div className="w-full h-3.5 bg-stone-100 rounded-full overflow-hidden flex shadow-inner">
+          <div
+            className="bg-stone-300 transition-all duration-500"
+            style={{ width: `${newPct}%` }}
+            title={`Chưa học: ${stats.newCount} từ (${newPct}%)`}
+          />
+          <div
+            className="bg-amber-400 transition-all duration-500"
+            style={{ width: `${learningPct}%` }}
+            title={`Đang học: ${stats.learningCount} từ (${learningPct}%)`}
+          />
+          <div
+            className="bg-blue-500 transition-all duration-500"
+            style={{ width: `${reviewPct}%` }}
+            title={`Đang ôn tập: ${stats.reviewCount} từ (${reviewPct}%)`}
+          />
+          <div
+            className="bg-emerald-500 transition-all duration-500"
+            style={{ width: `${masteredPct}%` }}
+            title={`Thuộc làu: ${stats.masteredCount} từ (${masteredPct}%)`}
+          />
         </div>
 
         {/* Legend */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-          {/* Mastered */}
-          <div className="p-3 rounded-xl bg-blue-50/60 border border-blue-200/60">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
-              <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-              <span>Đã thuộc (Mastered)</span>
+          <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-stone-50 border border-stone-100">
+            <span className="w-3 h-3 rounded-full bg-stone-400 shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-stone-800">
+                {stats.newCount} <span className="text-stone-400 font-normal">({newPct}%)</span>
+              </div>
+              <div className="text-[11px] text-stone-500">Từ mới</div>
             </div>
-            <div className="text-lg font-bold text-blue-900 mt-1">
-              {stats.masteredCount} <span className="text-xs font-normal text-blue-700">({masteredPct}%)</span>
-            </div>
-            <p className="text-[11px] text-blue-700 mt-0.5">Khoảng cách &gt; 21 ngày</p>
           </div>
 
-          {/* Review */}
-          <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200/60">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-900">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-              <span>Ôn tập định kỳ</span>
+          <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-amber-50/60 border border-amber-100">
+            <span className="w-3 h-3 rounded-full bg-amber-400 shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-amber-900">
+                {stats.learningCount} <span className="text-amber-600 font-normal">({learningPct}%)</span>
+              </div>
+              <div className="text-[11px] text-amber-700">Đang học</div>
             </div>
-            <div className="text-lg font-bold text-emerald-900 mt-1">
-              {stats.reviewCount} <span className="text-xs font-normal text-emerald-700">({reviewPct}%)</span>
-            </div>
-            <p className="text-[11px] text-emerald-700 mt-0.5">Khoảng cách 6 - 21 ngày</p>
           </div>
 
-          {/* Learning */}
-          <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/60">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
-              <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-              <span>Đang củng cố</span>
+          <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-blue-50/60 border border-blue-100">
+            <span className="w-3 h-3 rounded-full bg-blue-500 shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-blue-900">
+                {stats.reviewCount} <span className="text-blue-600 font-normal">({reviewPct}%)</span>
+              </div>
+              <div className="text-[11px] text-blue-700">Đang ôn tập</div>
             </div>
-            <div className="text-lg font-bold text-amber-900 mt-1">
-              {stats.learningCount} <span className="text-xs font-normal text-amber-700">({learningPct}%)</span>
-            </div>
-            <p className="text-[11px] text-amber-700 mt-0.5">Khoảng cách 1 - 5 ngày</p>
           </div>
 
-          {/* New */}
-          <div className="p-3 rounded-xl bg-stone-100 border border-stone-200">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800">
-              <div className="w-2.5 h-2.5 rounded-full bg-stone-400" />
-              <span>Từ mới (Chưa học)</span>
+          <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-100">
+            <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-emerald-900">
+                {stats.masteredCount} <span className="text-emerald-600 font-normal">({masteredPct}%)</span>
+              </div>
+              <div className="text-[11px] text-emerald-700">Thuộc làu</div>
             </div>
-            <div className="text-lg font-bold text-stone-900 mt-1">
-              {stats.newCount} <span className="text-xs font-normal text-stone-600">({newPct}%)</span>
-            </div>
-            <p className="text-[11px] text-stone-500 mt-0.5">Sẵn sàng để nạp</p>
           </div>
         </div>
       </div>
 
-      {/* Weekly Activity Chart (7 Days) */}
+      {/* Past 7 Days History Bar Chart */}
       <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-2xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-amber-700" />
+            <Calendar className="w-5 h-5 text-red-700" />
             <h3 className="font-bold text-stone-900 text-base">
               Lịch Sử Ôn Tập 7 Ngày Qua
             </h3>

@@ -450,6 +450,8 @@ export default function App() {
             onStartStudy={() => setActiveTab('study')}
             onOpenGuide={() => setIsUserGuideOpen(true)}
             onOpenFeedback={() => setIsFeedbackOpen(true)}
+            currentUser={currentUser}
+            onLogin={handleLogin}
           />
         )}
 
