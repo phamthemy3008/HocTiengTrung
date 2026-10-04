@@ -18,13 +18,14 @@ jobs:
           node-version: 20
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build Web Application
         run: npm run build
 
       - name: Update Production Website & Reload Nginx
         run: |
+          sudo mkdir -p /var/www/HocTiengTrung/dist
           sudo cp -r dist/* /var/www/HocTiengTrung/dist/
           sudo systemctl reload nginx
           echo "🚀 Đã cập nhật thành công bản Release: ${{ github.event.release.tag_name || 'Manual' }}"
