@@ -90,35 +90,33 @@ export async function evaluatePronunciation(
   const ai = getGeminiClient();
 
   const prompt = `
-Bạn là chuyên gia sư phạm ngữ âm tiếng Trung bản ngữ chuẩn phổ thông (Beijing / Standard Mandarin).
-Học viên đang thực hành phát âm từ sau:
+Bạn là chuyên gia thẩm định ngữ âm tiếng Trung bản ngữ (Standard Mandarin Phonetics).
+Học viên đang phát âm từ sau:
 - Hán tự mục tiêu: "${targetHanzi}"
 - Pinyin mục tiêu: "${targetPinyin}"
-- Kết quả nhận diện giọng nói của học viên: "${recognizedText || '(Chưa bắt được âm thanh rõ ràng)'}"
+- Kết quả nhận diện giọng nói thực tế của học viên: "${recognizedText || '(Chưa rõ âm)'}"
 
-Hãy phân tích ngữ âm chi tiết và trả về đối tượng JSON gồm:
-1. "accuracyScore": Điểm chính xác từ 0 đến 100.
-   - 85-100: Nếu nhận diện đúng chữ Hán và phát âm chuẩn.
-   - 60-84: Nếu nhận diện gần đúng, hoặc đúng phụ âm/nguyên âm nhưng lệch thanh điệu hoặc thiếu bật hơi.
-   - Dưới 60: Nếu nhận diện sai chữ khác hoặc phát âm sai nhiều.
-2. "isCorrect": true nếu phát âm tốt (>= 75 điểm), false nếu cần chỉnh sửa.
-3. "mistakeDetail": CHỈ RÕ CỤ THỂ ĐIỂM SAI:
-   - So sánh âm đọc nhận diện "${recognizedText}" với mục tiêu "${targetHanzi}" (${targetPinyin}).
-   - Chỉ ra học viên đang phát âm sai ở đâu:
-     + Sai thanh điệu nào? (ví dụ: "Đang đọc thành thanh 1 kéo dài thay vì thanh 4 dứt khoát", hoặc "nhầm thanh 2 dấu sắc với thanh 3").
-     + Sai thanh mẫu nào? (ví dụ: "Âm 'c' cần bật hơi nhưng bạn đọc không bật hơi thành 'z'", "Âm 'zh' cần uốn lưỡi nhưng bạn đọc thành 'z' dẹt lưỡi").
-     + Sai vận mẫu nào? (ví dụ: "Nhầm 'ian' thành 'iang'").
-   - Nếu đã đọc đúng hoàn toàn (>= 85 điểm), hãy ghi lời khen ngợi cụ thể về điểm làm tốt.
-4. "correctionGuide": HƯỚNG DẪN SỬA CÁCH ĐỌC TỪNG BƯỚC:
-   - Bước 1: Khẩu hình môi và răng.
-   - Bước 2: Vị trí đặt đầu lưỡi (chân răng trên, ngạc cứng, hay uốn cong lưỡi).
-   - Bước 3: Luồng hơi và độ cao thanh điệu (cách nhả âm, có nén hơi bật mạnh hay không).
-5. "toneFeedback": Phân tích chuẩn xác về quy luật thanh điệu của "${targetPinyin}" (Thanh 1 cao 55, Thanh 2 dốc lên 35, Thanh 3 trầm 214, Thanh 4 hạ mạnh từ 5 xuống 1, hoặc khinh thanh).
-6. "tips": Mẹo liên hệ thực tế gần gũi với âm tiếng Việt để học viên dễ bắt chước ngay.
-7. "phoneticBreakdown":
-   - "initial": Thanh mẫu (ví dụ "x", "zh", "b"...)
-   - "final": Vận mẫu (ví dụ "ué", "ǎo", "īng"...)
-   - "toneName": Tên thanh điệu (ví dụ "Thanh 2 (Dương bình)", "Thanh 4 (Khứ thanh)", "Thanh 3 (Thượng thanh)", "Thanh 1 (Âm bình)")
+Hãy phân tích ngữ âm cực kỳ chi tiết theo mô hình đánh giá 2 điểm số (Phát âm & Thanh điệu) và trả về đối tượng JSON gồm:
+1. "accuracyScore": Điểm tổng thể từ 0 đến 100.
+2. "pronunciationScore": Điểm phát âm phụ âm/nguyên âm (thanh mẫu/vận mẫu) từ 0 đến 100.
+3. "toneScore": Điểm chuẩn xác về thanh điệu (1, 2, 3, 4) từ 0 đến 100.
+4. "isCorrect": true nếu phát âm tốt (>= 75 điểm), false nếu cần cải thiện.
+5. "syllableDetails": Mảng chi tiết từng chữ Hán trong từ (theo thứ tự các chữ trong "${targetHanzi}"):
+   - "char": Chữ Hán tương ứng (ví dụ "工", "作")
+   - "pinyin": Pinyin có dấu của chữ đó (ví dụ "gōng", "zuò")
+   - "score": Điểm phát âm riêng của âm tiết đó (0-100, ví dụ 37, 80)
+   - "status": 'perfect' (>=85), 'good' (70-84), hoặc 'needs_work' (<70)
+6. "mistakeList": Danh sách các lỗi lệch âm hoặc thanh điệu cụ thể (nếu có):
+   - "code": Ký hiệu lỗi ngắn gọn (ví dụ "g→w", "ong→en", "uo→u", "Thanh 1→Thanh 4", "zh→z")
+   - "reason": Giải thích nguyên nhân ngắn gọn tiếng Việt (ví dụ: "Phụ âm đầu 1 bị lệch, nghe như 'w'", "Vần 1 bị lệch, nghe như 'en'", "Vần 2 bị lệch, nghe như 'u'")
+7. "mistakeDetail": Tóm tắt tổng quan chỗ sai rõ ràng cho học viên.
+8. "correctionGuide": Hướng dẫn sửa khẩu hình, vị trí lưỡi và luồng hơi từng bước.
+9. "toneFeedback": Phân tích chuẩn xác về quy luật thanh điệu của "${targetPinyin}".
+10. "tips": Mẹo bắt chước dễ nhớ so sánh với âm tiếng Việt.
+11. "phoneticBreakdown":
+    - "initial": Thanh mẫu chính
+    - "final": Vận mẫu chính
+    - "toneName": Tên thanh điệu
 `;
 
   const response = await ai.models.generateContent({
@@ -129,8 +127,36 @@ Hãy phân tích ngữ âm chi tiết và trả về đối tượng JSON gồm:
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          accuracyScore: { type: Type.INTEGER, description: 'Điểm số từ 0 - 100' },
+          accuracyScore: { type: Type.INTEGER, description: 'Điểm tổng từ 0 - 100' },
+          pronunciationScore: { type: Type.INTEGER, description: 'Điểm phát âm thanh mẫu/vận mẫu (0-100)' },
+          toneScore: { type: Type.INTEGER, description: 'Điểm thanh điệu (0-100)' },
           isCorrect: { type: Type.BOOLEAN, description: 'Đạt chuẩn hay chưa' },
+          syllableDetails: {
+            type: Type.ARRAY,
+            description: 'Chi tiết từng âm tiết',
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                char: { type: Type.STRING },
+                pinyin: { type: Type.STRING },
+                score: { type: Type.INTEGER },
+                status: { type: Type.STRING },
+              },
+              required: ['char', 'pinyin', 'score', 'status'],
+            },
+          },
+          mistakeList: {
+            type: Type.ARRAY,
+            description: 'Danh sách lỗi cụ thể',
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                code: { type: Type.STRING },
+                reason: { type: Type.STRING },
+              },
+              required: ['code', 'reason'],
+            },
+          },
           mistakeDetail: { type: Type.STRING, description: 'Chỉ rõ cụ thể chỗ sai của người học' },
           correctionGuide: { type: Type.STRING, description: 'Hướng dẫn sửa chi tiết cách đọc từng bước' },
           toneFeedback: { type: Type.STRING, description: 'Nhận xét thanh điệu' },
@@ -144,7 +170,18 @@ Hãy phân tích ngữ âm chi tiết và trả về đối tượng JSON gồm:
             },
           },
         },
-        required: ['accuracyScore', 'isCorrect', 'mistakeDetail', 'correctionGuide', 'toneFeedback', 'tips'],
+        required: [
+          'accuracyScore',
+          'pronunciationScore',
+          'toneScore',
+          'isCorrect',
+          'syllableDetails',
+          'mistakeList',
+          'mistakeDetail',
+          'correctionGuide',
+          'toneFeedback',
+          'tips',
+        ],
       },
     },
   });
@@ -157,10 +194,29 @@ Hãy phân tích ngữ âm chi tiết và trả về đối tượng JSON gồm:
       recognizedText,
     };
   } catch (err) {
-    const isMatch = recognizedText.trim() === targetHanzi.trim();
+    const isMatch = recognizedText.trim().toLowerCase() === targetHanzi.trim().toLowerCase();
+    const chars = targetHanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
+    const pinyins = (targetPinyin || '').split(/\s+/);
+
     return {
-      accuracyScore: isMatch ? 95 : 60,
+      accuracyScore: isMatch ? 92 : 65,
+      pronunciationScore: isMatch ? 95 : 70,
+      toneScore: isMatch ? 90 : 60,
       isCorrect: isMatch,
+      syllableDetails: chars.map((char, i) => ({
+        char,
+        pinyin: pinyins[i] || '',
+        score: isMatch ? 90 : 65,
+        status: isMatch ? 'perfect' : 'needs_work',
+      })),
+      mistakeList: isMatch
+        ? []
+        : [
+            {
+              code: `${targetPinyin.slice(0, 2)}...`,
+              reason: `Âm nhận diện '${recognizedText}'. Cần điều chỉnh theo phát âm chuẩn '${targetPinyin}'.`,
+            },
+          ],
       mistakeDetail: isMatch
         ? 'Bạn đã phát âm chính xác chữ Hán này!'
         : `Âm nhận diện được là "${recognizedText}". Cần lưu ý chuẩn xác thanh điệu và cách bật hơi của "${targetPinyin}".`,

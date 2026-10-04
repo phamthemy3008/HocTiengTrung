@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
-import { MessageSquarePlus, X, Send, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { MessageSquarePlus, X, Send, CheckCircle2, AlertCircle, Sparkles, LogIn } from 'lucide-react';
 import { feedbackService } from '../services/feedbackService';
 
 interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User | null;
+  onLoginRequest?: () => void;
 }
 
 export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   isOpen,
   onClose,
   currentUser,
+  onLoginRequest,
 }) => {
   const [name, setName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
@@ -27,6 +29,9 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
       if (currentUser) {
         setName(currentUser.displayName || '');
         setEmail(currentUser.email || '');
+      } else {
+        setName('');
+        setEmail('');
       }
       setSubmitted(false);
       setError(null);
@@ -37,6 +42,10 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      setError('Bạn cần đăng nhập để gửi góp ý.');
+      return;
+    }
     if (!message.trim()) {
       setError('Vui lòng nhập nội dung góp ý.');
       return;
@@ -47,10 +56,11 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
 
     try {
       const res = await feedbackService.submitFeedback({
-        name,
-        email,
+        userId: currentUser.uid,
+        name: name.trim() || currentUser.displayName || 'Người học',
+        email: email.trim() || currentUser.email || '',
         category,
-        message,
+        message: message.trim(),
       });
 
       if (res.success) {
@@ -92,8 +102,41 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
           </button>
         </div>
 
-        {/* Content */}
-        {submitted ? (
+        {/* Not Logged In View */}
+        {!currentUser ? (
+          <div className="p-7 text-center space-y-4">
+            <div className="w-14 h-14 mx-auto bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center">
+              <LogIn className="w-7 h-7 text-amber-700" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-stone-900">Yêu Cầu Đăng Nhập</h3>
+              <p className="text-xs text-stone-600 max-w-sm mx-auto leading-relaxed">
+                Để bảo vệ hệ thống khỏi tin nhắn rác và để Quản trị viên có thể phản hồi trực tiếp tới bạn, 
+                bạn cần <strong>đăng nhập tài khoản Google</strong> trước khi gửi góp ý.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-xl"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onLoginRequest?.();
+                }}
+                className="px-5 py-2 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Đăng Nhập Ngay</span>
+              </button>
+            </div>
+          </div>
+        ) : submitted ? (
           <div className="p-8 text-center space-y-3">
             <div className="w-12 h-12 mx-auto bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center animate-bounce">
               <CheckCircle2 className="w-7 h-7" />
@@ -165,11 +208,11 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
               </div>
             </div>
 
-            {/* Name & Email */}
+            {/* Name & Email (Auto-filled from user) */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Tên của bạn:
+                  Tên người gửi:
                 </label>
                 <input
                   type="text"

@@ -10,14 +10,23 @@ import {
   Calendar,
   Sparkles,
   Target,
+  BookOpen,
+  MessageSquarePlus,
+  HelpCircle,
 } from 'lucide-react';
 import { storageService } from '../services/storage';
 
 interface DashboardProps {
   onStartStudy: () => void;
+  onOpenGuide?: () => void;
+  onOpenFeedback?: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onStartStudy }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  onStartStudy,
+  onOpenGuide,
+  onOpenFeedback,
+}) => {
   const stats = storageService.getDashboardStats();
 
   const total = stats.totalCards || 1;
@@ -272,6 +281,51 @@ export const Dashboard: React.FC<DashboardProps> = ({ onStartStudy }) => {
             );
           })}
         </div>
+      </div>
+
+      {/* Helpful Links (Guide & Feedback) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {onOpenGuide && (
+          <button
+            type="button"
+            onClick={onOpenGuide}
+            className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 hover:bg-amber-100/80 transition-all text-left flex items-start gap-3.5 group shadow-2xs"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
+                <span>Hướng Dẫn Sử Dụng Chi Tiết</span>
+                <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-semibold">Tài liệu</span>
+              </h4>
+              <p className="text-[11px] text-stone-600 mt-1 leading-relaxed">
+                Tìm hiểu về Spaced Repetition SM-2, mẹo luyện viết chuẩn nét Hán tự, và cách luyện đọc phát âm chuẩn người bản xứ.
+              </p>
+            </div>
+          </button>
+        )}
+
+        {onOpenFeedback && (
+          <button
+            type="button"
+            onClick={onOpenFeedback}
+            className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200/80 hover:bg-rose-100/80 transition-all text-left flex items-start gap-3.5 group shadow-2xs"
+          >
+            <div className="w-10 h-10 rounded-xl bg-rose-200/80 text-rose-900 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <MessageSquarePlus className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
+                <span>Hòm Thư Góp Ý & Báo Lỗi</span>
+                <span className="text-[10px] bg-rose-200 text-rose-900 px-1.5 py-0.2 rounded font-semibold">Gửi Admin</span>
+              </h4>
+              <p className="text-[11px] text-stone-600 mt-1 leading-relaxed">
+                Đóng góp ý kiến cải tiến, phản ánh từ vựng chưa chuẩn hoặc đề xuất tính năng mới trực tiếp tới quản trị viên.
+              </p>
+            </div>
+          </button>
+        )}
       </div>
     </div>
   );

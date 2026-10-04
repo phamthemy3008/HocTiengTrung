@@ -17,7 +17,9 @@ import { OcrModal } from './components/OcrModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DonationModal } from './components/DonationModal';
 import { AuthModal } from './components/AuthModal';
-import { Heart, Coffee } from 'lucide-react';
+import { UserGuideModal } from './components/UserGuideModal';
+import { FeedbackModal } from './components/FeedbackModal';
+import { Heart, Coffee, Ban, LogOut } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'study' | 'decks' | 'dashboard' | 'admin'>('study');
@@ -30,6 +32,11 @@ export default function App() {
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
 
+  // Blacklist state
+  const [bannedStatus, setBannedStatus] = useState<{ isBanned: boolean; reason?: string }>({
+    isBanned: false,
+  });
+
   // Auth Error & Loading State
   const [authError, setAuthError] = useState<{ code: string; message: string } | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
@@ -39,6 +46,8 @@ export default function App() {
   const [isOcrOpen, setIsOcrOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDonationOpen, setIsDonationOpen] = useState<boolean>(false);
+  const [isUserGuideOpen, setIsUserGuideOpen] = useState<boolean>(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
 
   // Online / Offline listener
   useEffect(() => {
@@ -125,12 +134,23 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Sync with cloud on login
+        // Check if user is in blacklist (Requirement 7)
+        const banCheck = await storageService.checkIsUserBlacklisted(user.email, user.uid);
+        if (banCheck.isBanned) {
+          setBannedStatus(banCheck);
+          return;
+        } else {
+          setBannedStatus({ isBanned: false });
+        }
+
+        // Sync with cloud on login (Requirement 1)
         await storageService.syncWithCloud(user);
         // Refresh state from storage
         setDecks(storageService.getDecks());
         setCards(storageService.getCards());
         setProfile(storageService.getProfile());
+      } else {
+        setBannedStatus({ isBanned: false });
       }
     });
 
@@ -332,12 +352,42 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col text-stone-800">
+      {/* BANNED ACCOUNT OVERLAY (Requirement 7) */}
+      {bannedStatus.isBanned && (
+        <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-7 text-center shadow-2xl border border-red-200 space-y-4 animate-in fade-in">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-red-100 text-red-700 flex items-center justify-center">
+              <Ban className="w-9 h-9" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-stone-900">Tài Khoản Đã Bị Khóa</h2>
+              <p className="text-xs text-red-700 font-semibold">{bannedStatus.reason}</p>
+            </div>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Tài khoản của bạn tạm thời không thể sử dụng ứng dụng do vi phạm quy tắc cộng đồng hoặc bị quản trị viên đưa vào danh sách đen.
+              Nếu bạn cho rằng đây là sự nhầm lẫn, vui lòng liên hệ:
+              <strong className="block text-stone-900 mt-1 font-mono">phamthemy3008@gmail.com</strong>
+            </p>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Đăng Xuất Tài Khoản</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Navbar Header */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         openOcrModal={() => setIsOcrOpen(true)}
         openSettingsModal={() => setIsSettingsOpen(true)}
+        openUserGuide={() => setIsUserGuideOpen(true)}
+        openFeedbackModal={() => setIsFeedbackOpen(true)}
         profile={profile}
         currentUser={currentUser}
         onLogin={handleLogin}
@@ -357,6 +407,7 @@ export default function App() {
             setCurrentDeckId={setCurrentDeckId}
             onRecordReview={handleRecordReview}
             onNavigateToDecks={() => setActiveTab('decks')}
+            onOpenGuide={() => setIsUserGuideOpen(true)}
           />
         )}
 
@@ -375,7 +426,11 @@ export default function App() {
         )}
 
         {activeTab === 'dashboard' && (
-          <Dashboard onStartStudy={() => setActiveTab('study')} />
+          <Dashboard
+            onStartStudy={() => setActiveTab('study')}
+            onOpenGuide={() => setIsUserGuideOpen(true)}
+            onOpenFeedback={() => setIsFeedbackOpen(true)}
+          />
         )}
 
         {activeTab === 'admin' && (
@@ -401,6 +456,20 @@ export default function App() {
         onLogin={handleLogin}
         onLogout={handleLogout}
         isLoggingIn={isLoggingIn}
+      />
+
+      {/* User Guide Modal (Requirement 5) */}
+      <UserGuideModal
+        isOpen={isUserGuideOpen}
+        onClose={() => setIsUserGuideOpen(false)}
+      />
+
+      {/* Feedback Modal (Requirement 6) */}
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+        currentUser={currentUser}
+        onLoginRequest={handleLogin}
       />
 
       {/* Auth Error & Authorization Guidance Modal */}
@@ -453,6 +522,7 @@ export default function App() {
       <DonationModal
         isOpen={isDonationOpen}
         onClose={() => setIsDonationOpen(false)}
+        currentUser={currentUser}
       />
     </div>
   );

@@ -78,14 +78,30 @@ export interface OcrExtractedWord {
   exampleMeaning?: string;
 }
 
+export interface SyllableDetail {
+  char: string;
+  pinyin: string;
+  score: number;
+  status: 'perfect' | 'good' | 'needs_work';
+}
+
+export interface PhoneticMistake {
+  code: string; // e.g. "g→w", "ong→en", "uo→u"
+  reason: string; // e.g. "Phụ âm đầu 1 bị lệch, nghe như 'w'"
+}
+
 export interface PronunciationEvaluation {
-  accuracyScore: number; // 0-100
+  accuracyScore: number; // Điểm tổng thể (0-100) e.g. 82
+  pronunciationScore: number; // Điểm phát âm (0-100) e.g. 79
+  toneScore: number; // Điểm thanh điệu (0-100) e.g. 100
   recognizedText: string;
   toneFeedback: string;
   tips: string;
   isCorrect: boolean;
   mistakeDetail?: string; // Chỉ rõ điểm sai cụ thể
   correctionGuide?: string; // Hướng dẫn sửa chi tiết cách đọc
+  syllableDetails?: SyllableDetail[]; // Chi tiết từng âm tiết chữ Hán
+  mistakeList?: PhoneticMistake[]; // Danh sách lỗi sai cụ thể
   phoneticBreakdown?: {
     initial?: string; // Thanh mẫu (phụ âm đầu)
     final?: string; // Vận mẫu (nguyên âm)
@@ -95,11 +111,21 @@ export interface PronunciationEvaluation {
 
 export interface FeedbackItem {
   id: string;
+  userId?: string;
   name?: string;
   email?: string;
   category?: 'content' | 'bug' | 'feature' | 'other';
   message: string;
   status: 'unread' | 'read' | 'resolved';
+  createdAt: string;
+}
+
+export interface BlacklistEntry {
+  id: string;
+  email: string;
+  userId?: string;
+  reason?: string;
+  bannedBy?: string;
   createdAt: string;
 }
 

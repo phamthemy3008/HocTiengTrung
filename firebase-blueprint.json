@@ -92,6 +92,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
         "name": { "type": "string", "maxLength": 128 },
         "email": { "type": "string", "maxLength": 256 },
         "category": { "type": "string", "maxLength": 64 },
@@ -100,12 +101,50 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "message", "createdAt"]
+    },
+    "BlacklistEntry": {
+      "title": "Blacklist Banned User Entry",
+      "description": "Blacklisted user emails or IDs banned by the administrator.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "reason": { "type": "string", "maxLength": 512 },
+        "bannedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "createdAt"]
+    },
+    "DonationConfig": {
+      "title": "Donation Information Configuration",
+      "description": "Donation banking info, QR code params, and greeting message customizable only by the administrator.",
+      "type": "object",
+      "properties": {
+        "bankName": { "type": "string", "maxLength": 128 },
+        "accountNumber": { "type": "string", "maxLength": 64 },
+        "accountHolder": { "type": "string", "maxLength": 128 },
+        "momoPhone": { "type": "string", "maxLength": 32 },
+        "transferContent": { "type": "string", "maxLength": 128 },
+        "customMessage": { "type": "string", "maxLength": 1024 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "maxLength": 256 }
+      },
+      "required": ["bankName", "accountNumber", "accountHolder"]
     }
   },
   "firestore": {
+    "/system_config/{docId}": {
+      "schema": { "$ref": "#/entities/DonationConfig" },
+      "description": "Public system configurations like donation information edited only by admin"
+    },
     "/feedback/{feedbackId}": {
       "schema": { "$ref": "#/entities/Feedback" },
       "description": "User feedbacks and suggestions readable only by admin"
+    },
+    "/blacklist/{banId}": {
+      "schema": { "$ref": "#/entities/BlacklistEntry" },
+      "description": "Banned users and emails managed by admin and checked upon login"
     },
     "/system_vocab/{docId}": {
       "schema": { "$ref": "#/entities/SystemVocab" },

@@ -13,6 +13,7 @@ import { FeedbackItem } from '../types';
 
 class FeedbackService {
   async submitFeedback(data: {
+    userId?: string;
     name?: string;
     email?: string;
     category?: 'content' | 'bug' | 'feature' | 'other';
@@ -21,6 +22,7 @@ class FeedbackService {
     const id = `fb-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const newFeedback: FeedbackItem = {
       id,
+      userId: data.userId || '',
       name: data.name?.trim() || 'Người học ẩn danh',
       email: data.email?.trim() || '',
       category: data.category || 'content',

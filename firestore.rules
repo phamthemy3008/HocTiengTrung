@@ -93,47 +93,60 @@ service cloud.firestore {
 
     function isValidFeedback(data) {
       return data.keys().hasAll(['id', 'message', 'createdAt']) &&
-             data.keys().hasOnly(['id', 'name', 'email', 'category', 'message', 'status', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'name', 'email', 'category', 'message', 'status', 'createdAt']) &&
              data.id is string && data.id.size() <= 128 &&
              data.message is string && data.message.size() > 0 && data.message.size() <= 2048 &&
              data.createdAt is string && data.createdAt.size() <= 64 &&
+             (!('userId' in data) || (data.userId is string && data.userId.size() <= 128)) &&
              (!('name' in data) || (data.name is string && data.name.size() <= 128)) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
              (!('category' in data) || (data.category is string && data.category.size() <= 64)) &&
              (!('status' in data) || (data.status in ['unread', 'read', 'resolved']));
     }
 
+    function isValidBlacklist(data) {
+      return data.keys().hasAll(['id', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'email', 'userId', 'reason', 'bannedBy', 'createdAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
+             (!('userId' in data) || (data.userId is string && data.userId.size() <= 128)) &&
+             (!('reason' in data) || (data.reason is string && data.reason.size() <= 512)) &&
+             (!('bannedBy' in data) || (data.bannedBy is string && data.bannedBy.size() <= 128));
+    }
+
     // 2. Collection Rules
     match /users/{userId} {
-      allow get: if isOwner(userId);
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
       allow create: if isOwner(userId) && isValidUser(incoming());
-      allow update: if isOwner(userId) && isValidUser(incoming()) && incoming().uid == existing().uid;
-      allow delete: if isOwner(userId);
+      allow update: if (isOwner(userId) || isAdmin()) && isValidUser(incoming());
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     match /decks/{deckId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isPublic == true);
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isPublic == true);
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isPublic == true || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isPublic == true || isAdmin());
       allow create: if isVerified() && isValidId(deckId) && isValidDeck(incoming());
-      allow update: if isVerified() && isValidId(deckId) && existing().userId == request.auth.uid && isValidDeck(incoming()) && incoming().userId == existing().userId;
-      allow delete: if isVerified() && isValidId(deckId) && existing().userId == request.auth.uid;
+      allow update: if isVerified() && isValidId(deckId) && (existing().userId == request.auth.uid || isAdmin()) && isValidDeck(incoming());
+      allow delete: if isVerified() && isValidId(deckId) && (existing().userId == request.auth.uid || isAdmin());
     }
 
     match /cards/{cardId} {
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(cardId) && isValidCard(incoming());
-      allow update: if isVerified() && isValidId(cardId) && existing().userId == request.auth.uid && isValidCard(incoming()) && incoming().userId == existing().userId;
-      allow delete: if isVerified() && isValidId(cardId) && existing().userId == request.auth.uid;
+      allow update: if isVerified() && isValidId(cardId) && (existing().userId == request.auth.uid || isAdmin()) && isValidCard(incoming());
+      allow delete: if isVerified() && isValidId(cardId) && (existing().userId == request.auth.uid || isAdmin());
     }
 
     match /study_logs/{logId} {
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(logId) && isValidStudyLog(incoming());
       // Study logs are immutable
       allow update: if false;
-      allow delete: if isVerified() && isValidId(logId) && existing().userId == request.auth.uid;
+      allow delete: if isVerified() && isValidId(logId) && (existing().userId == request.auth.uid || isAdmin());
     }
 
     // System Vocabulary (Central shared vocabulary in Cloud Firestore managed by admin)
@@ -144,10 +157,24 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // System Configurations (Donation info, app constants - readable by all, writable only by admin)
+    match /system_config/{docId} {
+      allow get, list: if true;
+      allow write: if isAdmin();
+    }
+
     // User Feedback (Submissions from users, read/managed by admin)
     match /feedback/{feedbackId} {
-      allow create: if isValidFeedback(incoming());
+      allow create: if isSignedIn() && isValidFeedback(incoming());
       allow read, update, delete: if isAdmin();
+    }
+
+    // Blacklist (Users banned by admin)
+    match /blacklist/{banId} {
+      // Anyone signed in can read to verify if they are banned
+      allow get, list: if isSignedIn();
+      allow write: if isAdmin() && isValidBlacklist(incoming());
+      allow delete: if isAdmin();
     }
   }
 }

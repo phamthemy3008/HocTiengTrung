@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { User } from 'firebase/auth';
 import {
   Heart,
   Coffee,
@@ -10,37 +11,49 @@ import {
   Edit3,
   Save,
   CreditCard,
-  Smartphone,
-  ExternalLink,
+  ShieldCheck,
+  RotateCcw,
 } from 'lucide-react';
+import { storageService } from '../services/storage';
+
+export const ADMIN_EMAIL = 'phamthemy3008@gmail.com';
 
 interface DonationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  currentUser?: User | null;
 }
 
-interface DonationInfo {
+export interface DonationInfo {
   bankName: string;
   accountNumber: string;
   accountHolder: string;
   momoPhone: string;
   transferContent: string;
   customMessage: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
-const DEFAULT_DONATION_INFO: DonationInfo = {
+export const DEFAULT_DONATION_INFO: DonationInfo = {
   bankName: 'MB Bank (Ngân hàng Quân Đội)',
   accountNumber: '0987830111',
   accountHolder: 'PHAM THE MY',
   momoPhone: '0987830111',
   transferContent: 'Ủng hộ Học Tiếng Trung',
   customMessage:
-    'Cảm ơn bạn đã đồng hành và sử dụng ứng dụng Học Tiếng Trung! Sự ủng hộ của bạn là nguồn động lực to lớn giúp mình duy trì và tiếp tục phát triển ứng dụng ngày càng tốt hơn.',
+    'Cảm ơn bạn đã đồng hành và sử dụng ứng dụng Học Tiếng Trung! Sự ủng hộ của bạn là nguồn động lực to lớn giúp mình duy trì máy chủ và tiếp tục phát triển ứng dụng ngày càng tốt hơn.',
 };
 
 const STORAGE_KEY = 'hoctiengtrung_donation_info_v2';
 
-export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose }) => {
+export const DonationModal: React.FC<DonationModalProps> = ({
+  isOpen,
+  onClose,
+  currentUser,
+}) => {
+  const isAdmin = currentUser?.email?.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
   const [donationInfo, setDonationInfo] = useState<DonationInfo>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -52,6 +65,20 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editForm, setEditForm] = useState<DonationInfo>(donationInfo);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  // Fetch latest donation info from Cloud Firestore on open
+  useEffect(() => {
+    if (isOpen) {
+      storageService.fetchDonationInfo().then((info) => {
+        if (info && info.bankName && info.accountNumber) {
+          setDonationInfo(info);
+          setEditForm(info);
+        }
+      });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     setEditForm(donationInfo);
@@ -67,13 +94,30 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
     }, 2000);
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setDonationInfo(editForm);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(editForm));
-    } catch {}
-    setIsEditing(false);
+    if (!isAdmin) return;
+
+    setIsSaving(true);
+    setSaveSuccess(null);
+
+    const result = await storageService.saveDonationInfo(editForm, currentUser);
+    setIsSaving(false);
+
+    if (result.success) {
+      setDonationInfo(editForm);
+      setSaveSuccess('Đã cập nhật thông tin ủng hộ thành công lên Đám mây!');
+      setIsEditing(false);
+      setTimeout(() => setSaveSuccess(null), 3500);
+    } else {
+      alert(result.error || 'Lỗi khi lưu thông tin');
+    }
+  };
+
+  const handleResetToDefault = () => {
+    if (window.confirm('Khôi phục thông tin ủng hộ về mặc định của tác giả Phạm Thế Mỹ?')) {
+      setEditForm(DEFAULT_DONATION_INFO);
+    }
   };
 
   // Generate VietQR URL if bank info is available
@@ -89,6 +133,12 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
     ? 'VPB'
     : cleanBankName.includes('acb')
     ? 'ACB'
+    : cleanBankName.includes('tp') || cleanBankName.includes('tpb')
+    ? 'TPB'
+    : cleanBankName.includes('bidv')
+    ? 'BIDV'
+    : cleanBankName.includes('viettin') || cleanBankName.includes('vietin')
+    ? 'CTG'
     : 'MB';
 
   const vietQrUrl = `https://img.vietqr.io/image/${bankBin}-${donationInfo.accountNumber.trim()}-compact2.png?addInfo=${encodeURIComponent(
@@ -96,7 +146,7 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
   )}&accountName=${encodeURIComponent(donationInfo.accountHolder)}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-stone-200 overflow-hidden relative max-h-[92vh] flex flex-col">
         {/* Header Ribbon */}
         <div className="flex items-center justify-between pb-4 border-b border-stone-100">
@@ -125,13 +175,21 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
+        {/* Status notification */}
+        {saveSuccess && (
+          <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{saveSuccess}</span>
+          </div>
+        )}
+
         {/* Scrollable Body */}
         <div className="overflow-y-auto py-4 space-y-4 pr-1">
           {/* Author Message */}
           <div className="p-3.5 bg-gradient-to-r from-amber-50/80 via-rose-50/50 to-orange-50/80 border border-amber-200/70 rounded-2xl text-xs text-stone-700 leading-relaxed shadow-2xs">
             <p className="font-medium text-stone-800 mb-1 flex items-center gap-1.5">
               <Coffee className="w-4 h-4 text-amber-700 shrink-0" />
-              <span>Lời ngỏ từ người phát triển:</span>
+              <span>Lời ngỏ từ tác giả:</span>
             </p>
             <p className="text-stone-600 italic">
               "{donationInfo.customMessage}"
@@ -279,16 +337,26 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
               )}
             </div>
           ) : (
-            /* Edit Form (Cho phép chủ app tùy chỉnh STK và thông điệp) */
+            /* Edit Form (Chỉ Admin mới có quyền truy cập) */
             <form onSubmit={handleSaveEdit} className="space-y-3 text-xs bg-stone-50 p-4 rounded-2xl border border-stone-200">
-              <div className="font-bold text-stone-800 text-sm flex items-center gap-1.5 mb-2">
-                <Edit3 className="w-4 h-4 text-amber-700" />
-                <span>Chỉnh Sửa Thông Tin Nhận Ủng Hộ (Tùy Biến)</span>
+              <div className="flex items-center justify-between pb-1 border-b border-stone-200">
+                <div className="font-bold text-stone-800 text-xs flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <span>Quản Trị Viên: Sửa Thông Tin Nhận Ủng Hộ</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetToDefault}
+                  className="text-[11px] text-stone-500 hover:text-red-700 flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Mặc định</span>
+                </button>
               </div>
 
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">
-                  Tên Ngân Hàng:
+                  Tên Ngân Hàng (hỗ trợ MB, Vietcombank, Techcombank, ACB, VPBank, TPBank...):
                 </label>
                 <input
                   type="text"
@@ -314,7 +382,7 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
                 </div>
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">
-                    Chủ tài khoản:
+                    Chủ tài khoản (Không dấu):
                   </label>
                   <input
                     type="text"
@@ -340,7 +408,7 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
                 </div>
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">
-                    Nội dung mẫu:
+                    Nội dung chuyển khoản mẫu:
                   </label>
                   <input
                     type="text"
@@ -353,7 +421,7 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
 
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">
-                  Lời nhắn gửi của bạn:
+                  Lời ngỏ gửi tới người học:
                 </label>
                 <textarea
                   rows={2}
@@ -373,10 +441,11 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-1 px-4 py-1.5 rounded-lg bg-red-700 hover:bg-red-800 text-white font-semibold shadow-2xs"
+                  disabled={isSaving}
+                  className="flex items-center gap-1 px-4 py-1.5 rounded-lg bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-semibold shadow-2xs"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Lưu thông tin</span>
+                  <span>{isSaving ? 'Đang lưu...' : 'Lưu Lên Đám Mây'}</span>
                 </button>
               </div>
             </form>
@@ -385,14 +454,21 @@ export const DonationModal: React.FC<DonationModalProps> = ({ isOpen, onClose })
 
         {/* Footer actions */}
         <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-xs">
-          <button
-            type="button"
-            onClick={() => setIsEditing(!isEditing)}
-            className="text-stone-400 hover:text-stone-700 flex items-center gap-1 text-[11px]"
-          >
-            <Edit3 className="w-3 h-3" />
-            <span>{isEditing ? 'Hủy sửa' : 'Tùy chỉnh thông tin nhận'}</span>
-          </button>
+          {/* ONLY ADMIN CAN SEE & CLICK EDIT BUTTON */}
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={() => setIsEditing(!isEditing)}
+              className="text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200/80 flex items-center gap-1 text-[11px] font-semibold transition-all"
+            >
+              <Edit3 className="w-3 h-3 text-amber-700" />
+              <span>{isEditing ? 'Đóng chỉnh sửa' : '⚙️ Admin: Sửa thông tin'}</span>
+            </button>
+          ) : (
+            <div className="text-[11px] text-stone-400">
+              Trân trọng cảm ơn mọi sự đóng góp của bạn ❤️
+            </div>
+          )}
 
           <button
             type="button"

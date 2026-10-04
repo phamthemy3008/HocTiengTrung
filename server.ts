@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { extractVocabularyFromImage, evaluatePronunciation, checkHandwritingMatch } from './api/gemini';
 import { getSystemDecksAndCards, saveSystemVocab, resetSystemVocabToDefault } from './api/systemDecks';
@@ -149,6 +150,72 @@ app.delete('/api/feedback/:id', (req, res) => {
   feedbacks = feedbacks.filter((f) => f.id !== id);
   saveFeedbacksToFile();
   res.json({ success: true });
+});
+
+// Blacklist in-memory & file store
+const BLACKLIST_FILE = path.resolve(process.cwd(), 'src/data/blacklist.json');
+let blacklist: any[] = [];
+try {
+  if (fs.existsSync(BLACKLIST_FILE)) {
+    blacklist = JSON.parse(fs.readFileSync(BLACKLIST_FILE, 'utf-8'));
+  }
+} catch {}
+
+function saveBlacklistToFile() {
+  try {
+    fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(blacklist, null, 2), 'utf-8');
+  } catch {}
+}
+
+app.get('/api/blacklist', (_req, res) => {
+  res.json({ success: true, blacklist });
+});
+
+app.post('/api/blacklist', (req, res) => {
+  try {
+    const adminEmail = (req.headers['x-admin-email'] || req.headers['authorization']) as string;
+    const cleanEmail = adminEmail ? adminEmail.replace('Bearer ', '').trim().toLowerCase() : '';
+    if (cleanEmail !== ADMIN_EMAIL.toLowerCase()) {
+      return res.status(403).json({
+        success: false,
+        error: `Chỉ tài khoản Quản trị viên (${ADMIN_EMAIL}) mới có quyền quản lý blacklist.`,
+      });
+    }
+    const entry = req.body;
+    if (!entry || !entry.email) {
+      return res.status(400).json({ success: false, error: 'Thiếu email cần khóa' });
+    }
+    const existingIdx = blacklist.findIndex((b) => b.email.toLowerCase() === entry.email.toLowerCase());
+    if (existingIdx >= 0) {
+      blacklist[existingIdx] = entry;
+    } else {
+      blacklist.unshift(entry);
+    }
+    saveBlacklistToFile();
+    console.log(`🚫 [BLACKLIST ADDED]: User ${entry.email} đã bị khóa.`);
+    res.json({ success: true, entry });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/blacklist/:emailOrId', (req, res) => {
+  try {
+    const adminEmail = (req.headers['x-admin-email'] || req.headers['authorization']) as string;
+    const cleanEmail = adminEmail ? adminEmail.replace('Bearer ', '').trim().toLowerCase() : '';
+    if (cleanEmail !== ADMIN_EMAIL.toLowerCase()) {
+      return res.status(403).json({
+        success: false,
+        error: `Chỉ tài khoản Quản trị viên (${ADMIN_EMAIL}) mới có quyền bỏ cấm user.`,
+      });
+    }
+    const target = req.params.emailOrId.toLowerCase();
+    blacklist = blacklist.filter((b) => b.id !== target && b.email.toLowerCase() !== target);
+    saveBlacklistToFile();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Serve frontend in production

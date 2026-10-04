@@ -12,6 +12,8 @@ import {
   WifiOff,
   RefreshCw,
   ShieldCheck,
+  HelpCircle,
+  MessageSquarePlus,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -20,6 +22,8 @@ interface NavbarProps {
   setActiveTab: (tab: 'study' | 'decks' | 'dashboard' | 'admin') => void;
   openOcrModal: () => void;
   openSettingsModal: () => void;
+  openUserGuide: () => void;
+  openFeedbackModal: () => void;
   profile: UserProfile;
   currentUser: any;
   onLogin: () => void;
@@ -34,6 +38,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   openOcrModal,
   openSettingsModal,
+  openUserGuide,
+  openFeedbackModal,
   profile,
   currentUser,
   onLogin,
@@ -138,17 +144,39 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Right Actions: OCR, Streak, Auth, Settings */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        {/* Right Actions: Guide, Feedback, OCR, Streak, Auth, Settings */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* User Guide Button (Requirement 5) */}
+          <button
+            type="button"
+            onClick={openUserGuide}
+            title="Hướng dẫn sử dụng ứng dụng"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200/80 transition-colors shadow-2xs"
+          >
+            <HelpCircle className="w-4 h-4 text-amber-700" />
+            <span className="hidden lg:inline">Hướng dẫn</span>
+          </button>
+
+          {/* Feedback Button (Requirement 6) */}
+          <button
+            type="button"
+            onClick={openFeedbackModal}
+            title="Gửi góp ý hoặc báo lỗi cho Admin"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 rounded-lg border border-stone-200 shadow-2xs transition-colors"
+          >
+            <MessageSquarePlus className="w-4 h-4 text-red-700" />
+            <span className="hidden lg:inline">Góp ý</span>
+          </button>
+
           {/* OCR Quick Button */}
           <button
             type="button"
             onClick={openOcrModal}
             title="Quét từ vựng từ Camera hoặc ảnh chụp"
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200/80 transition-colors shadow-2xs"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 rounded-lg border border-stone-200 transition-colors shadow-2xs"
           >
-            <Camera className="w-4 h-4 text-amber-700" />
-            <span className="hidden md:inline">Quét ảnh OCR</span>
+            <Camera className="w-4 h-4 text-stone-600" />
+            <span className="hidden md:inline">Quét OCR</span>
           </button>
 
           {/* Streak Badge */}
@@ -163,7 +191,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Network indicator */}
           <div
             title={isOnline ? 'Đang online (Đồng bộ Cloud)' : 'Chế độ Offline (Lưu tại máy)'}
-            className="hidden sm:flex items-center text-stone-400"
+            className="hidden xl:flex items-center text-stone-400"
           >
             {isOnline ? (
               <Wifi className="w-4 h-4 text-emerald-600" />
@@ -174,15 +202,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Google Auth / Profile */}
           {currentUser ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {currentUser.photoURL ? (
                 <img
                   src={currentUser.photoURL}
                   alt={currentUser.displayName || 'User'}
-                  className="w-8 h-8 rounded-full border border-stone-200 shadow-2xs object-cover"
+                  className="w-7 h-7 rounded-full border border-stone-200 shadow-2xs object-cover"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-stone-200 text-stone-700 flex items-center justify-center text-xs font-bold">
+                <div className="w-7 h-7 rounded-full bg-stone-200 text-stone-700 flex items-center justify-center text-xs font-bold">
                   {(currentUser.displayName || 'U')[0].toUpperCase()}
                 </div>
               )}
@@ -200,12 +228,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               onClick={onLogin}
               disabled={isLoggingIn}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 rounded-lg border border-stone-200 shadow-2xs transition-colors disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 rounded-lg border border-stone-200 shadow-2xs transition-colors disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
             >
               {isLoggingIn ? (
-                <RefreshCw className="w-4 h-4 text-red-700 animate-spin" />
+                <RefreshCw className="w-3.5 h-3.5 text-red-700 animate-spin" />
               ) : (
-                <LogIn className="w-4 h-4 text-red-700" />
+                <LogIn className="w-3.5 h-3.5 text-red-700" />
               )}
               <span className="hidden sm:inline">
                 {isLoggingIn ? 'Đang vào...' : 'Đăng nhập'}
@@ -218,7 +246,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             type="button"
             onClick={openSettingsModal}
             title="Cài đặt & Nhắc nhở"
-            className="p-2 text-stone-500 hover:text-stone-800 rounded-lg hover:bg-stone-100 transition-colors"
+            className="p-1.5 text-stone-500 hover:text-stone-800 rounded-lg hover:bg-stone-100 transition-colors"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -227,3 +255,4 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+

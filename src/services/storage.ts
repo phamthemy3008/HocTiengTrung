@@ -419,7 +419,40 @@ class StorageService {
     if (!user || !this.isOnline()) return;
 
     try {
-      // 1. Fetch user's remote decks
+      // 1. Fetch user's profile from Firestore
+      try {
+        const userDocSnap = await getDoc(doc(db, 'users', user.uid));
+        if (userDocSnap.exists()) {
+          const remoteProfile = userDocSnap.data() as UserProfile;
+          const currentProfile = this.getProfile();
+          const mergedProfile: UserProfile = {
+            ...currentProfile,
+            ...remoteProfile,
+            uid: user.uid,
+            displayName: user.displayName || remoteProfile.displayName || currentProfile.displayName,
+            email: user.email || remoteProfile.email || currentProfile.email,
+            photoURL: user.photoURL || remoteProfile.photoURL,
+            updatedAt: new Date().toISOString(),
+          };
+          this.saveProfile(mergedProfile);
+        } else {
+          // Create initial user document
+          const currentProfile = this.getProfile();
+          const newProfile: UserProfile = {
+            ...currentProfile,
+            uid: user.uid,
+            displayName: user.displayName || currentProfile.displayName,
+            email: user.email || '',
+            photoURL: user.photoURL || undefined,
+            updatedAt: new Date().toISOString(),
+          };
+          await setDoc(doc(db, 'users', user.uid), newProfile);
+        }
+      } catch (profileErr) {
+        console.warn('Profile sync notice:', profileErr);
+      }
+
+      // 2. Fetch user's remote decks
       const decksQuery = query(
         collection(db, 'decks'),
         where('userId', '==', user.uid)
@@ -428,7 +461,7 @@ class StorageService {
       const remoteDecks: Deck[] = [];
       decksSnap.forEach((docSnap) => remoteDecks.push(docSnap.data() as Deck));
 
-      // 2. Fetch user's remote cards
+      // 3. Fetch user's remote cards & progress
       const cardsQuery = query(
         collection(db, 'cards'),
         where('userId', '==', user.uid)
@@ -437,50 +470,197 @@ class StorageService {
       const remoteCards: Card[] = [];
       cardsSnap.forEach((docSnap) => remoteCards.push(docSnap.data() as Card));
 
+      // 4. Fetch user's study logs
+      try {
+        const logsQuery = query(
+          collection(db, 'study_logs'),
+          where('userId', '==', user.uid)
+        );
+        const logsSnap = await getDocs(logsQuery);
+        const remoteLogs: StudyLog[] = [];
+        logsSnap.forEach((docSnap) => remoteLogs.push(docSnap.data() as StudyLog));
+
+        if (remoteLogs.length > 0) {
+          const localLogs = this.getLogs();
+          const logsMap = new Map<string, StudyLog>();
+          localLogs.forEach((l) => logsMap.set(l.id, l));
+          remoteLogs.forEach((l) => logsMap.set(l.id, l));
+          this.saveLogs(Array.from(logsMap.values()));
+        }
+      } catch (logsErr) {
+        console.warn('Logs sync notice:', logsErr);
+      }
+
       const localDecks = this.getDecks();
       const localCards = this.getCards();
 
-      // If remote has data, merge remote into local
-      if (remoteDecks.length > 0 || remoteCards.length > 0) {
+      // If remote has cards/decks, merge user progress into local cards
+      if (remoteCards.length > 0 || remoteDecks.length > 0) {
+        // Merge decks
         const mergedDecksMap = new Map<string, Deck>();
         localDecks.forEach((d) => mergedDecksMap.set(d.id, d));
         remoteDecks.forEach((d) => mergedDecksMap.set(d.id, d));
         this.saveDecks(Array.from(mergedDecksMap.values()));
 
-        const mergedCardsMap = new Map<string, Card>();
-        localCards.forEach((c) => mergedCardsMap.set(c.id, c));
-        remoteCards.forEach((c) => mergedCardsMap.set(c.id, c));
-        this.saveCards(Array.from(mergedCardsMap.values()));
+        // Merge cards by matching ID or Hanzi
+        const remoteCardMap = new Map<string, Card>();
+        remoteCards.forEach((c) => {
+          remoteCardMap.set(c.id, c);
+          remoteCardMap.set(`hanzi_${c.hanzi}`, c);
+        });
+
+        const mergedCards = localCards.map((localCard) => {
+          const matchedRemote = remoteCardMap.get(localCard.id) || remoteCardMap.get(`hanzi_${localCard.hanzi}`);
+          if (matchedRemote) {
+            return {
+              ...localCard,
+              interval: matchedRemote.interval ?? localCard.interval,
+              repetitions: matchedRemote.repetitions ?? localCard.repetitions,
+              easeFactor: matchedRemote.easeFactor ?? localCard.easeFactor,
+              dueDate: matchedRemote.dueDate ?? localCard.dueDate,
+              lastReviewed: matchedRemote.lastReviewed ?? localCard.lastReviewed,
+              status: matchedRemote.status ?? localCard.status,
+              updatedAt: matchedRemote.updatedAt ?? localCard.updatedAt,
+            };
+          }
+          return localCard;
+        });
+
+        // Add any new custom cards from remote that weren't local
+        const localCardIds = new Set(localCards.map((c) => c.id));
+        remoteCards.forEach((rc) => {
+          if (!localCardIds.has(rc.id) && rc.userId === user.uid) {
+            mergedCards.push(rc);
+          }
+        });
+
+        this.saveCards(mergedCards);
       } else {
-        // Upload initial local data to remote for new cloud user
-        for (const deck of localDecks) {
-          await setDoc(doc(db, 'decks', deck.id), {
-            ...deck,
-            userId: user.uid,
-          });
-        }
-        for (const card of localCards) {
-          await setDoc(doc(db, 'cards', card.id), {
+        // First-time sync: Upload user's current cards to Firestore so they are stored under their account
+        for (const card of localCards.filter((c) => c.status !== 'new' || c.userId === user.uid)) {
+          await setDoc(doc(db, 'cards', `${user.uid}_${card.id}`), {
             ...card,
             userId: user.uid,
-          });
+          }).catch(() => {});
         }
       }
-
-      // Update profile
-      const currentProfile = this.getProfile();
-      const updatedProfile: UserProfile = {
-        ...currentProfile,
-        uid: user.uid,
-        displayName: user.displayName || currentProfile.displayName,
-        email: user.email || currentProfile.email,
-        photoURL: user.photoURL || undefined,
-        updatedAt: new Date().toISOString(),
-      };
-      this.saveProfile(updatedProfile);
     } catch (err) {
       console.warn('Sync on login notice:', err);
     }
+  }
+
+  // ===== BLACKLIST / USER BAN SERVICE =====
+  async checkIsUserBlacklisted(email?: string | null, uid?: string | null): Promise<{ isBanned: boolean; reason?: string }> {
+    if (!email && !uid) return { isBanned: false };
+    const cleanEmail = (email || '').trim().toLowerCase();
+
+    // 1. Check local storage blacklist cache
+    try {
+      const cached = localStorage.getItem('hanzisrs_blacklist');
+      if (cached) {
+        const list: any[] = JSON.parse(cached);
+        const match = list.find((b) => (cleanEmail && b.email?.toLowerCase() === cleanEmail) || (uid && b.userId === uid));
+        if (match) {
+          return { isBanned: true, reason: match.reason || 'Tài khoản của bạn đã bị khóa do vi phạm tiêu chuẩn cộng đồng.' };
+        }
+      }
+    } catch {}
+
+    // 2. Check Cloud Firestore blacklist
+    try {
+      const snap = await getDocs(collection(db, 'blacklist'));
+      const list: any[] = [];
+      snap.forEach((d) => list.push(d.data()));
+      if (list.length > 0) {
+        localStorage.setItem('hanzisrs_blacklist', JSON.stringify(list));
+        const match = list.find((b) => (cleanEmail && b.email?.toLowerCase() === cleanEmail) || (uid && b.userId === uid));
+        if (match) {
+          return { isBanned: true, reason: match.reason || 'Tài khoản của bạn đã bị khóa do vi phạm tiêu chuẩn cộng đồng.' };
+        }
+      }
+    } catch {}
+
+    // 3. Fallback server API
+    try {
+      const res = await fetch('/api/blacklist');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.blacklist)) {
+        const match = data.blacklist.find((b: any) => (cleanEmail && b.email?.toLowerCase() === cleanEmail) || (uid && b.userId === uid));
+        if (match) {
+          return { isBanned: true, reason: match.reason || 'Tài khoản của bạn đã bị khóa do vi phạm tiêu chuẩn cộng đồng.' };
+        }
+      }
+    } catch {}
+
+    return { isBanned: false };
+  }
+
+  async fetchBlacklist(): Promise<any[]> {
+    try {
+      const snap = await getDocs(collection(db, 'blacklist'));
+      const list: any[] = [];
+      snap.forEach((d) => list.push(d.data()));
+      if (list.length > 0) return list;
+    } catch {}
+
+    try {
+      const res = await fetch('/api/blacklist');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.blacklist)) {
+        return data.blacklist;
+      }
+    } catch {}
+
+    return [];
+  }
+
+  async addToBlacklist(email: string, reason: string, adminUser: User): Promise<{ success: boolean; error?: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return { success: false, error: 'Vui lòng nhập email.' };
+    const id = `ban-${Date.now()}`;
+    const entry = {
+      id,
+      email: cleanEmail,
+      reason: reason.trim() || 'Vi phạm điều khoản cộng đồng',
+      bannedBy: adminUser.email || 'Admin',
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      await setDoc(doc(db, 'blacklist', id), entry);
+    } catch (err: any) {
+      console.warn('Firestore blacklist write notice:', err);
+    }
+
+    try {
+      await fetch('/api/blacklist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-email': adminUser.email || '',
+        },
+        body: JSON.stringify(entry),
+      });
+    } catch {}
+
+    return { success: true };
+  }
+
+  async removeFromBlacklist(idOrEmail: string, adminUser: User): Promise<{ success: boolean; error?: string }> {
+    try {
+      await deleteDoc(doc(db, 'blacklist', idOrEmail));
+    } catch {}
+
+    try {
+      await fetch(`/api/blacklist/${encodeURIComponent(idOrEmail)}`, {
+        method: 'DELETE',
+        headers: {
+          'x-admin-email': adminUser.email || '',
+        },
+      });
+    } catch {}
+
+    return { success: true };
   }
 
   // ===== STATS CALCULATION =====
@@ -555,7 +735,7 @@ class StorageService {
   async saveSystemVocabToCloud(
     deck: Deck,
     cards: Card[],
-    user?: User | null
+    user?: any
   ): Promise<{ success: boolean; error?: string }> {
     const email = user?.email?.trim().toLowerCase();
     if (email !== 'phamthemy3008@gmail.com') {
@@ -576,6 +756,56 @@ class StorageService {
       console.error('Lỗi khi lưu lên Cloud Firestore:', err);
       return { success: false, error: err.message || 'Lỗi khi lưu lên Đám mây.' };
     }
+  }
+
+  // ===== DONATION INFO (Managed only by Admin) =====
+  async fetchDonationInfo(): Promise<any> {
+    // 1. Try Firestore
+    try {
+      const snap = await getDoc(doc(db, 'system_config', 'donation'));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && data.bankName && data.accountNumber) {
+          localStorage.setItem('hoctiengtrung_donation_info_v2', JSON.stringify(data));
+          return data;
+        }
+      }
+    } catch {}
+
+    // 2. Fallback to localStorage
+    try {
+      const saved = localStorage.getItem('hoctiengtrung_donation_info_v2');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+
+    return null;
+  }
+
+  async saveDonationInfo(info: any, user?: any): Promise<{ success: boolean; error?: string }> {
+    const email = user?.email?.trim().toLowerCase();
+    if (email !== 'phamthemy3008@gmail.com') {
+      return { success: false, error: 'Chỉ tài khoản admin phamthemy3008@gmail.com mới có quyền chỉnh sửa mục ủng hộ tác giả.' };
+    }
+
+    const payload = {
+      ...info,
+      updatedAt: new Date().toISOString(),
+      updatedBy: email,
+    };
+
+    // 1. Save to Cloud Firestore
+    try {
+      await setDoc(doc(db, 'system_config', 'donation'), payload);
+    } catch (err: any) {
+      console.warn('Firestore donation config write notice:', err);
+    }
+
+    // 2. Cache locally
+    try {
+      localStorage.setItem('hoctiengtrung_donation_info_v2', JSON.stringify(payload));
+    } catch {}
+
+    return { success: true };
   }
 }
 

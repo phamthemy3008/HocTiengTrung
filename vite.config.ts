@@ -120,6 +120,35 @@ function apiServerPlugin(): Plugin {
           return;
         }
 
+        if (req.url === '/api/system-vocab/reset' && req.method === 'POST') {
+          try {
+            const { resetSystemVocabToDefault } = await import('./api/systemDecks');
+            const result = resetSystemVocabToDefault();
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(result));
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message }));
+          }
+          return;
+        }
+
+        if (req.url?.startsWith('/api/feedback')) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true, feedbacks: [] }));
+          return;
+        }
+
+        if (req.url?.startsWith('/api/blacklist')) {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true, blacklist: [] }));
+          return;
+        }
+
         if (req.url === '/api/health') {
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
