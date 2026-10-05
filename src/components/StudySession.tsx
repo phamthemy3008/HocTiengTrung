@@ -250,6 +250,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
   // Cleanup timers & audio on unmount or card change
   useEffect(() => {
+    if (currentCard?.hanzi) {
+      // Pre-warm server cache and browser cache for instant playback
+      fetch(`/api/tts?text=${encodeURIComponent(currentCard.hanzi)}`).catch(() => {});
+    }
     return () => {
       if (autoAdvanceTimerRef.current) {
         clearTimeout(autoAdvanceTimerRef.current);
@@ -258,7 +262,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
         voiceRecorderRef.current.stop();
       }
     };
-  }, []);
+  }, [currentCard?.hanzi]);
 
   // Play standard pronunciation
   const handlePlayAudio = (text?: string) => {
@@ -379,7 +383,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
             })
           : null);
 
-      if (blobToSend && blobToSend.size > 0) {
+      if (blobToSend && blobToSend.size > 200) {
         audioMimeType = blobToSend.type || 'audio/webm';
         audioBase64 = await blobToBase64(blobToSend);
       }
@@ -390,7 +394,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
         body: JSON.stringify({
           targetHanzi: currentCard.hanzi,
           targetPinyin: currentCard.pinyin,
-          recognizedText: transcript,
+          recognizedText: transcript || '',
           audioBase64,
           audioMimeType,
         }),
@@ -410,63 +414,97 @@ export const StudySession: React.FC<StudySessionProps> = ({
         }
       } else {
         // Fallback heuristic evaluation with structured syllables & mistake
-        const isMatch = transcript.trim().toLowerCase().includes(currentCard.hanzi.trim().toLowerCase());
         const chars = currentCard.hanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
         const pinyins = (currentCard.pinyin || '').split(/\s+/);
-        setEvalResult({
-          accuracyScore: isMatch ? 90 : 65,
-          pronunciationScore: isMatch ? 92 : 68,
-          toneScore: isMatch ? 88 : 60,
-          recognizedText: transcript,
-          toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần nhấn đúng cao độ thanh điệu hơn.',
-          tips: 'Hãy mở rộng khẩu hình và bật hơi dứt khoát theo chuẩn người bản xứ.',
-          isCorrect: isMatch,
-          syllableDetails: chars.map((char, i) => ({
-            char,
-            pinyin: pinyins[i] || '',
-            score: isMatch ? 92 : 65,
-            status: isMatch ? 'perfect' : 'good',
-          })),
-          mistakeList: isMatch
-            ? []
-            : [
-                {
-                  code: 'Lệch âm',
-                  reason: `Âm thu được (${transcript || 'chưa rõ'}) chưa khớp chuẩn với "${currentCard.hanzi}" (${currentCard.pinyin})`,
-                },
-              ],
-          mistakeDetail: isMatch
-            ? 'Phát âm chuẩn xác!'
-            : `Học viên đọc "${transcript || 'chưa rõ âm'}", cần đọc đúng "${currentCard.hanzi}" (${currentCard.pinyin}).`,
-          correctionGuide: 'Hãy nghe kỹ mẫu giọng bản xứ và đọc lại to, rõ ràng.',
-        });
+        const hasSpoken = Boolean(transcript && transcript.trim());
+        const isMatch = hasSpoken && transcript.trim().toLowerCase().includes(currentCard.hanzi.trim().toLowerCase());
+
+        if (!hasSpoken && (!blobToSend || blobToSend.size < 500)) {
+          setEvalResult({
+            accuracyScore: 0,
+            pronunciationScore: 0,
+            toneScore: 0,
+            recognizedText: '(Chưa ghi nhận giọng đọc)',
+            toneFeedback: 'Chưa phát hiện âm thanh.',
+            tips: 'Hãy bấm micro và đọc to rõ ràng theo chữ Hán trên màn hình.',
+            isCorrect: false,
+            syllableDetails: chars.map((char, i) => ({
+              char,
+              pinyin: pinyins[i] || '',
+              score: 0,
+              status: 'needs_work',
+            })),
+            mistakeList: [
+              {
+                code: 'Im lặng',
+                reason: 'Chưa ghi nhận được âm thanh. Hãy bấm micro và đọc to rõ ràng!',
+              },
+            ],
+            mistakeDetail: 'Chưa thu được giọng đọc tiếng Trung.',
+            correctionGuide: `Hãy nghe âm mẫu "${currentCard.hanzi}" (${currentCard.pinyin}) và đọc to theo.`,
+          });
+        } else {
+          setEvalResult({
+            accuracyScore: isMatch ? 90 : 25,
+            pronunciationScore: isMatch ? 92 : 30,
+            toneScore: isMatch ? 88 : 20,
+            recognizedText: transcript || '(Âm thanh chưa rõ)',
+            toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần phát âm rõ ràng hơn.',
+            tips: 'Hãy nghe kỹ âm chuẩn bản xứ trước khi đọc.',
+            isCorrect: isMatch,
+            syllableDetails: chars.map((char, i) => ({
+              char,
+              pinyin: pinyins[i] || '',
+              score: isMatch ? 92 : 25,
+              status: isMatch ? 'perfect' : 'needs_work',
+            })),
+            mistakeList: isMatch
+              ? []
+              : [
+                  {
+                    code: 'Lệch âm',
+                    reason: `Âm thu được "${transcript || 'chưa rõ'}" chưa chuẩn với "${currentCard.hanzi}" (${currentCard.pinyin})`,
+                  },
+                ],
+            mistakeDetail: isMatch
+              ? 'Phát âm chuẩn xác!'
+              : `Cần luyện đọc lại theo chuẩn "${currentCard.hanzi}" (${currentCard.pinyin}).`,
+            correctionGuide: 'Hãy nghe lại phát âm mẫu bản xứ và đọc to theo khẩu hình.',
+          });
+        }
       }
     } catch {
-      const isMatch = transcript.trim().toLowerCase().includes(currentCard.hanzi.trim().toLowerCase());
       const chars = currentCard.hanzi.split('').filter((c) => /[\u4e00-\u9fa5]/.test(c));
       const pinyins = (currentCard.pinyin || '').split(/\s+/);
+      const hasSpoken = Boolean(transcript && transcript.trim());
+      const isMatch = hasSpoken && transcript.trim().toLowerCase().includes(currentCard.hanzi.trim().toLowerCase());
+
       setEvalResult({
-        accuracyScore: isMatch ? 90 : 65,
-        pronunciationScore: isMatch ? 92 : 68,
-        toneScore: isMatch ? 88 : 60,
-        recognizedText: transcript,
+        accuracyScore: isMatch ? 90 : hasSpoken ? 25 : 0,
+        pronunciationScore: isMatch ? 92 : hasSpoken ? 30 : 0,
+        toneScore: isMatch ? 88 : hasSpoken ? 20 : 0,
+        recognizedText: transcript || '(Chưa có âm thanh)',
         toneFeedback: isMatch ? 'Phát âm tương đối chuẩn!' : 'Cần phát âm rõ ràng hơn.',
         tips: 'Hãy nghe kỹ âm chuẩn bản xứ trước khi đọc.',
         isCorrect: isMatch,
         syllableDetails: chars.map((char, i) => ({
           char,
           pinyin: pinyins[i] || '',
-          score: isMatch ? 92 : 65,
-          status: isMatch ? 'perfect' : 'good',
+          score: isMatch ? 92 : hasSpoken ? 25 : 0,
+          status: isMatch ? 'perfect' : 'needs_work',
         })),
         mistakeList: isMatch
           ? []
           : [
               {
-                code: 'Cần cải thiện',
-                reason: `Âm thu được (${transcript || 'chưa rõ'}) chưa khớp hoàn toàn với "${currentCard.hanzi}"`,
+                code: hasSpoken ? 'Cần cải thiện' : 'Chưa có âm',
+                reason: hasSpoken
+                  ? `Âm thu được "${transcript}" chưa khớp với "${currentCard.hanzi}"`
+                  : 'Chưa thu được giọng đọc. Hãy đọc to hơn.',
               },
             ],
+        mistakeDetail: isMatch ? 'Phát âm chuẩn!' : 'Chưa đạt chuẩn phát âm.',
+        correctionGuide: 'Hãy nghe âm mẫu và thử lại.',
       });
     } finally {
       setIsEvaluating(false);
@@ -477,15 +515,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const handleToggleVoiceRecord = async () => {
     if (isListening) {
       // Stop recording
+      setIsListening(false);
       if (voiceRecorderRef.current) {
         voiceRecorderRef.current.stop();
       }
       if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
         audioRecorderRef.current.stop();
+      } else {
+        evaluateVoice(micTranscriptRef.current);
       }
-      setIsListening(false);
-      const textToEvaluate = micTranscriptRef.current;
-      evaluateVoice(textToEvaluate);
       return;
     }
 
@@ -501,7 +539,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
     try {
       let stream: MediaStream;
       try {
-        // First try high compatibility Bluetooth & USB microphone constraints
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -510,7 +547,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
           },
         });
       } catch {
-        // Fallback for Bluetooth headsets on Windows / PC that reject strict constraints
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
 
@@ -543,13 +579,11 @@ export const StudySession: React.FC<StudySessionProps> = ({
         setRecordedAudioUrl(url);
         stream.getTracks().forEach((track) => track.stop());
 
-        // If Web Speech didn't catch transcript (common with PC Bluetooth headsets), evaluate direct audio
-        if (!micTranscriptRef.current && audioChunksRef.current.length > 0) {
-          evaluateVoice('', audioBlob);
-        }
+        // Single authoritative evaluation trigger with full audio blob
+        evaluateVoice(micTranscriptRef.current, audioBlob);
       };
 
-      mediaRecorder.start(200); // chunk every 200ms for responsiveness
+      mediaRecorder.start(200);
     } catch (err) {
       console.warn('Microphone stream access notice:', err);
     }
@@ -564,8 +598,9 @@ export const StudySession: React.FC<StudySessionProps> = ({
           setIsListening(false);
           if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
             audioRecorderRef.current.stop();
+          } else {
+            evaluateVoice(transcript);
           }
-          evaluateVoice(transcript);
         }
       },
       (error: any) => {
@@ -573,7 +608,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
         if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
           audioRecorderRef.current.stop();
         }
-        console.warn('Speech recognition notice (Evaluating via direct audio recording):', error);
+        console.warn('Speech recognition notice:', error);
       }
     );
 

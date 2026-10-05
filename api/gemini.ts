@@ -124,14 +124,20 @@ Chỉ trả về đối tượng JSON theo cấu trúc yêu cầu.
 `;
 
   const parts: any[] = [];
-  if (audioBase64) {
-    const cleanBase64 = audioBase64.replace(/^data:audio\/[a-z0-9]+;base64,/, '');
-    parts.push({
-      inlineData: {
-        mimeType: audioMimeType || 'audio/webm',
-        data: cleanBase64,
-      },
-    });
+  if (audioBase64 && audioBase64.trim()) {
+    const cleanBase64 = audioBase64.includes('base64,')
+      ? audioBase64.split('base64,')[1].trim()
+      : audioBase64.trim();
+    const cleanMimeType = (audioMimeType || 'audio/webm').split(';')[0].trim();
+
+    if (cleanBase64.length > 50) {
+      parts.push({
+        inlineData: {
+          mimeType: cleanMimeType,
+          data: cleanBase64,
+        },
+      });
+    }
   }
   parts.push({ text: prompt });
 

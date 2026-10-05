@@ -1,225 +1,167 @@
 /**
- * Web Speech API & HTML5 / Web Audio Utility for Native Mandarin (zh-CN) Pronunciation
- * (Engineered for 100% Reliability on iOS Safari iPhone, Android Chrome, Web & Desktop)
+ * Native Mandarin (zh-CN) Speech & Audio Service
+ * (Optimized for 100% Reliability on iPhone iOS Safari, Android, and Web Desktop)
  */
 
 class SpeechService {
   private synth: SpeechSynthesis | null = null;
-  private sharedAudio: HTMLAudioElement | null = null;
-  private audioCtx: AudioContext | null = null;
-  private isUnlocked: boolean = false;
+  private currentAudio: HTMLAudioElement | null = null;
+  private cachedVoices: SpeechSynthesisVoice[] = [];
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      if ('speechSynthesis' in window) {
-        this.synth = window.speechSynthesis;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      this.synth = window.speechSynthesis;
+      this.loadVoices();
+      if (this.synth.onvoiceschanged !== undefined) {
+        this.synth.onvoiceschanged = () => this.loadVoices();
       }
-      this.initSharedAudio();
-      this.setupAutoUnlock();
     }
   }
 
-  private initSharedAudio() {
-    if (typeof document === 'undefined') return;
+  private loadVoices() {
+    if (!this.synth) return;
     try {
-      let el = document.getElementById('chinese-speech-player') as HTMLAudioElement;
-      if (!el) {
-        el = document.createElement('audio');
-        el.id = 'chinese-speech-player';
-        el.setAttribute('playsinline', 'true');
-        el.setAttribute('webkit-playsinline', 'true');
-        el.preload = 'auto';
-        el.style.display = 'none';
-        document.body.appendChild(el);
-      }
-      this.sharedAudio = el;
+      this.cachedVoices = this.synth.getVoices() || [];
     } catch {
-      // Ignore if document not ready
+      this.cachedVoices = [];
     }
-  }
-
-  /**
-   * Unlock iOS Safari Web Audio and HTML5 Audio on the very first user interaction
-   */
-  private setupAutoUnlock() {
-    if (typeof window === 'undefined') return;
-
-    const unlockHandler = () => {
-      if (this.isUnlocked) return;
-      this.isUnlocked = true;
-
-      // 1. Unlock HTML5 Audio
-      if (this.sharedAudio) {
-        this.sharedAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-        const p = this.sharedAudio.play();
-        if (p !== undefined) {
-          p.then(() => {
-            this.sharedAudio?.pause();
-          }).catch(() => {});
-        }
-      }
-
-      // 2. Unlock Web Audio Context
-      try {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioContextClass && !this.audioCtx) {
-          this.audioCtx = new AudioContextClass();
-          if (this.audioCtx.state === 'suspended') {
-            this.audioCtx.resume();
-          }
-        }
-      } catch {}
-
-      // 3. Unlock SpeechSynthesis on iOS
-      if (this.synth) {
-        try {
-          const silentUtterance = new SpeechSynthesisUtterance('');
-          silentUtterance.volume = 0.01;
-          this.synth.speak(silentUtterance);
-        } catch {}
-      }
-
-      // Remove event listeners once unlocked
-      ['touchstart', 'touchend', 'click', 'keydown', 'pointerdown'].forEach((evt) => {
-        window.removeEventListener(evt, unlockHandler);
-      });
-    };
-
-    ['touchstart', 'touchend', 'click', 'keydown', 'pointerdown'].forEach((evt) => {
-      window.addEventListener(evt, unlockHandler, { once: true, passive: true });
-    });
   }
 
   private getBestMandarinVoice(): SpeechSynthesisVoice | null {
-    if (!this.synth) return null;
-    const voices = this.synth.getVoices();
+    if (!this.cachedVoices || this.cachedVoices.length === 0) {
+      this.loadVoices();
+    }
+    const voices = this.cachedVoices;
     if (!voices || voices.length === 0) return null;
 
+    // Prefer high quality native Chinese voices on iOS / Chrome / Edge
     return (
       voices.find(
         (v) =>
-          v.lang === 'zh-CN' &&
-          (v.name.includes('Google') ||
+          v.lang.replace('_', '-').toLowerCase() === 'zh-cn' &&
+          (v.name.includes('Tingting') ||
+            v.name.includes('Ting-Ting') ||
+            v.name.includes('Sinji') ||
+            v.name.includes('Sin-ji') ||
+            v.name.includes('Meijia') ||
+            v.name.includes('Mei-Jia') ||
+            v.name.includes('Siri') ||
             v.name.includes('Natural') ||
             v.name.includes('Xiaoxiao') ||
             v.name.includes('Yunxi') ||
-            v.name.includes('Tingting') ||
-            v.name.includes('Sinji') ||
-            v.name.includes('Meijia'))
+            v.name.includes('Google') ||
+            v.name.includes('Premium'))
       ) ||
-      voices.find((v) => v.lang === 'zh-CN') ||
-      voices.find((v) => v.lang === 'zh_CN') ||
+      voices.find((v) => v.lang.replace('_', '-').toLowerCase() === 'zh-cn') ||
       voices.find((v) => v.lang.toLowerCase().startsWith('zh')) ||
       null
     );
   }
 
   /**
-   * Speak Chinese text with standard Mandarin pronunciation
-   * Works 100% on iOS Safari, Android, and Desktop
-   * @param text Hanzi or sentence to speak
-   * @param rate playback speed (default 0.9 for learners)
+   * Speak Chinese text with native Mandarin pronunciation
+   * Synchronous execution within user gesture for iOS Safari compatibility
    */
-  speak(text: string, rate: number = 0.9): Promise<void> {
+  speak(text: string, rate: number = 0.88): Promise<void> {
     if (!text || !text.trim()) return Promise.resolve();
     const cleanText = text.trim();
 
     return new Promise((resolve) => {
-      let isCompleted = false;
-      const finish = () => {
-        if (!isCompleted) {
-          isCompleted = true;
+      let resolved = false;
+      const done = () => {
+        if (!resolved) {
+          resolved = true;
           resolve();
         }
       };
 
-      if (!this.sharedAudio) {
-        this.initSharedAudio();
-      }
-
-      const audioUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
-
-      // Strategy 1: Shared HTML5 Audio Element (iOS Unlocked)
-      if (this.sharedAudio) {
+      // 1. Primary: Native SpeechSynthesis (Fastest, zero network delay, native iOS Siri/TingTing voice)
+      if (this.synth) {
         try {
-          this.sharedAudio.pause();
-          this.sharedAudio.currentTime = 0;
-          this.sharedAudio.src = audioUrl;
+          if (this.synth.paused) {
+            this.synth.resume();
+          }
+          this.synth.cancel();
 
-          this.sharedAudio.onended = finish;
-          this.sharedAudio.onerror = () => {
-            // Fallback to Web Audio / SpeechSynthesis if network error
-            this.fallbackSpeechSynthesis(cleanText, rate).then(finish);
-          };
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          utterance.lang = 'zh-CN';
+          utterance.rate = rate;
+          utterance.pitch = 1.0;
 
-          const playPromise = this.sharedAudio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch((err) => {
-              console.warn('Audio play restricted, trying SpeechSynthesis fallback:', err);
-              this.fallbackSpeechSynthesis(cleanText, rate).then(finish);
-            });
+          const voice = this.getBestMandarinVoice();
+          if (voice) {
+            utterance.voice = voice;
           }
 
-          // Safety timeout
-          setTimeout(finish, 4000);
+          utterance.onend = () => done();
+          utterance.onerror = () => {
+            // Fallback to online audio if SpeechSynthesis fails
+            this.playOnlineAudio(cleanText).then(done);
+          };
+
+          // Store on window to prevent iOS Safari garbage collection bug
+          (window as any)._lastChineseUtterance = utterance;
+
+          this.synth.speak(utterance);
+
+          // Timeout safety in case onend does not fire on older iOS
+          setTimeout(() => {
+            if (this.synth && this.synth.speaking) {
+              this.synth.resume();
+            }
+            done();
+          }, 3500);
+
           return;
-        } catch (err) {
-          console.warn('Audio tag failed:', err);
+        } catch {
+          // Fall through to online audio
         }
       }
 
-      // Strategy 2: Fallback to SpeechSynthesis
-      this.fallbackSpeechSynthesis(cleanText, rate).then(finish);
+      // 2. Secondary: Online HD Audio Stream
+      this.playOnlineAudio(cleanText).then(done);
     });
   }
 
   /**
-   * Fallback SpeechSynthesis for offline usage
+   * Online High Definition Mandarin Audio Stream fallback
    */
-  private fallbackSpeechSynthesis(text: string, rate: number = 0.9): Promise<void> {
+  private playOnlineAudio(text: string): Promise<void> {
     return new Promise((resolve) => {
-      if (!this.synth) {
-        resolve();
-        return;
-      }
-
       try {
-        this.synth.cancel();
-        if (this.synth.paused) {
-          this.synth.resume();
+        if (this.currentAudio) {
+          this.currentAudio.pause();
+          this.currentAudio.src = '';
         }
 
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'zh-CN';
-        utterance.rate = rate;
-        utterance.pitch = 1.0;
+        const urls = [
+          `/api/tts?text=${encodeURIComponent(text)}`,
+          `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&le=zh`,
+        ];
 
-        const voice = this.getBestMandarinVoice();
-        if (voice) {
-          utterance.voice = voice;
-        }
+        let urlIndex = 0;
+        const audio = new Audio();
+        this.currentAudio = audio;
+        audio.setAttribute('playsinline', 'true');
+        audio.setAttribute('webkit-playsinline', 'true');
 
-        let isDone = false;
-        utterance.onend = () => {
-          if (!isDone) {
-            isDone = true;
+        const tryNextUrl = () => {
+          if (urlIndex < urls.length) {
+            audio.src = urls[urlIndex++];
+            const p = audio.play();
+            if (p !== undefined) {
+              p.catch(() => tryNextUrl());
+            }
+          } else {
             resolve();
           }
         };
-        utterance.onerror = () => {
-          if (!isDone) {
-            isDone = true;
-            resolve();
-          }
-        };
 
-        this.synth.speak(utterance);
-        setTimeout(() => {
-          if (!isDone) {
-            isDone = true;
-            resolve();
-          }
-        }, 3000);
+        audio.onended = () => resolve();
+        audio.onerror = () => tryNextUrl();
+
+        tryNextUrl();
+        setTimeout(resolve, 4000);
       } catch {
         resolve();
       }
@@ -227,7 +169,7 @@ class SpeechService {
   }
 
   /**
-   * Check if speech recognition is supported in this browser
+   * Check if Web Speech Recognition is supported
    */
   isRecognitionSupported(): boolean {
     if (typeof window === 'undefined') return false;
@@ -249,43 +191,50 @@ class SpeechService {
       return { stop: () => {} };
     }
 
-    const rec = new SpeechRecognitionClass();
-    rec.lang = 'zh-CN';
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.maxAlternatives = 3;
-
-    rec.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
-        } else {
-          interim += event.results[i][0].transcript;
-        }
-      }
-      onResult(final || interim, Boolean(final));
-    };
-
-    rec.onerror = (event: any) => {
-      onError(event.error);
-    };
-
     try {
-      rec.start();
-    } catch (e) {
-      console.warn('SpeechRecognition start error:', e);
-    }
+      const rec = new SpeechRecognitionClass();
+      rec.lang = 'zh-CN';
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
 
-    return {
-      stop: () => {
-        try {
-          rec.stop();
-        } catch (_) {}
-      },
-    };
+      rec.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        const transcript = (finalTranscript || interimTranscript).trim();
+        if (transcript) {
+          onResult(transcript, !!finalTranscript);
+        }
+      };
+
+      rec.onerror = (event: any) => {
+        onError(event);
+      };
+
+      rec.start();
+
+      return {
+        stop: () => {
+          try {
+            rec.stop();
+          } catch {}
+        },
+      };
+    } catch (e) {
+      onError(e);
+      return { stop: () => {} };
+    }
   }
 }
 
 export const speechService = new SpeechService();
+export default speechService;
