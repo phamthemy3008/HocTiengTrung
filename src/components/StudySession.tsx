@@ -251,10 +251,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
   // Cleanup timers & audio on unmount or card change
   useEffect(() => {
-    if (currentCard?.hanzi) {
-      // Pre-warm server cache and browser cache for instant playback
-      fetch(`/api/tts?text=${encodeURIComponent(currentCard.hanzi)}`).catch(() => {});
-    }
     return () => {
       if (autoAdvanceTimerRef.current) {
         clearTimeout(autoAdvanceTimerRef.current);
@@ -263,18 +259,25 @@ export const StudySession: React.FC<StudySessionProps> = ({
         voiceRecorderRef.current.stop();
       }
     };
-  }, [currentCard?.hanzi]);
+  }, []);
+
+  const isSpeakingRef = useRef(false);
 
   // Play standard pronunciation
   const handlePlayAudio = async (text?: string) => {
+    if (isSpeakingRef.current) return;
     const textToSpeak = text || currentCard?.hanzi;
-    if (textToSpeak) {
-      setIsPlayingStandardAudio(true);
-      try {
-        await speechService.speak(textToSpeak);
-      } finally {
-        setTimeout(() => setIsPlayingStandardAudio(false), 500);
-      }
+    if (!textToSpeak) return;
+
+    isSpeakingRef.current = true;
+    setIsPlayingStandardAudio(true);
+    try {
+      await speechService.speak(textToSpeak);
+    } finally {
+      setTimeout(() => {
+        isSpeakingRef.current = false;
+        setIsPlayingStandardAudio(false);
+      }, 300);
     }
   };
 

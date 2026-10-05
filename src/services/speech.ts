@@ -5,7 +5,6 @@
 
 class SpeechService {
   private synth: SpeechSynthesis | null = null;
-  private currentAudio: HTMLAudioElement | null = null;
   private cachedVoices: SpeechSynthesisVoice[] = [];
 
   constructor() {
@@ -60,83 +59,38 @@ class SpeechService {
 
   /**
    * Speak Chinese text with native Mandarin pronunciation
-   * Primary: Instant High-Definition Native Mandarin Audio (100% Reliable on iPhone & all devices)
-   * Fallback: Native SpeechSynthesis
+   * Rock-solid single-engine SpeechSynthesis (Matches release v1.0.0.1: No double-playing, 100% iOS & PC compatible)
    */
   speak(text: string, rate: number = 0.88): Promise<void> {
     if (!text || !text.trim()) return Promise.resolve();
     const cleanText = text.trim();
 
     return new Promise((resolve) => {
-      let resolved = false;
+      let isDone = false;
       const done = () => {
-        if (!resolved) {
-          resolved = true;
+        if (!isDone) {
+          isDone = true;
           resolve();
         }
       };
 
-      // 1. Primary: Instant High-Definition Native Mandarin Audio Stream
-      try {
-        if (this.currentAudio) {
-          this.currentAudio.pause();
-          this.currentAudio.src = '';
-        }
-
-        const audio = new Audio();
-        this.currentAudio = audio;
-        audio.setAttribute('playsinline', 'true');
-        audio.setAttribute('webkit-playsinline', 'true');
-        audio.playbackRate = rate;
-
-        const urls = [
-          `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&le=zh`,
-          `/api/tts?text=${encodeURIComponent(cleanText)}`,
-        ];
-
-        let urlIndex = 0;
-        const tryNextUrl = () => {
-          if (urlIndex < urls.length) {
-            audio.src = urls[urlIndex++];
-            const p = audio.play();
-            if (p !== undefined) {
-              p.catch(() => tryNextUrl());
-            }
-          } else {
-            // If all online streams fail, fallback to SpeechSynthesis
-            this.fallbackSpeechSynthesis(cleanText, rate).then(done);
-          }
-        };
-
-        audio.onended = () => done();
-        audio.onerror = () => tryNextUrl();
-
-        tryNextUrl();
-        setTimeout(done, 4000);
-        return;
-      } catch {
-        this.fallbackSpeechSynthesis(cleanText, rate).then(done);
-      }
-    });
-  }
-
-  /**
-   * Fallback to device SpeechSynthesis when offline
-   */
-  private fallbackSpeechSynthesis(text: string, rate: number = 0.88): Promise<void> {
-    return new Promise((resolve) => {
       if (!this.synth) {
-        resolve();
+        done();
         return;
       }
 
       try {
+        // Resume if iOS WebKit speech synth is paused
         if (this.synth.paused) {
           this.synth.resume();
         }
-        this.synth.cancel();
 
-        const utterance = new SpeechSynthesisUtterance(text);
+        // Only cancel previous utterance if currently speaking to avoid cancelling the current one on iOS
+        if (this.synth.speaking) {
+          this.synth.cancel();
+        }
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = 'zh-CN';
         utterance.rate = rate;
         utterance.pitch = 1.0;
@@ -146,20 +100,22 @@ class SpeechService {
           utterance.voice = voice;
         }
 
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+        utterance.onend = done;
+        utterance.onerror = (e) => {
+          console.warn('SpeechSynthesis event error:', e);
+          done();
+        };
 
+        // CRITICAL FOR IOS SAFARI: Prevent garbage-collection of the utterance object
         (window as any)._lastChineseUtterance = utterance;
+
         this.synth.speak(utterance);
 
-        setTimeout(() => {
-          if (this.synth && this.synth.speaking) {
-            this.synth.resume();
-          }
-          resolve();
-        }, 3000);
-      } catch {
-        resolve();
+        // Safety timeout in case onend does not fire
+        setTimeout(done, 3500);
+      } catch (err) {
+        console.warn('SpeechSynthesis speak error:', err);
+        done();
       }
     });
   }
