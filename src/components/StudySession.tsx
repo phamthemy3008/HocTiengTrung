@@ -146,6 +146,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [evalResult, setEvalResult] = useState<PronunciationEvaluation | null>(null);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const [isPlayingRecordedAudio, setIsPlayingRecordedAudio] = useState<boolean>(false);
+  const [isPlayingStandardAudio, setIsPlayingStandardAudio] = useState<boolean>(false);
   const activeUserAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -265,10 +266,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
   }, [currentCard?.hanzi]);
 
   // Play standard pronunciation
-  const handlePlayAudio = (text?: string) => {
+  const handlePlayAudio = async (text?: string) => {
     const textToSpeak = text || currentCard?.hanzi;
     if (textToSpeak) {
-      speechService.speak(textToSpeak);
+      setIsPlayingStandardAudio(true);
+      try {
+        await speechService.speak(textToSpeak);
+      } finally {
+        setTimeout(() => setIsPlayingStandardAudio(false), 500);
+      }
     }
   };
 
@@ -1021,11 +1027,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
               <button
                 type="button"
                 onClick={() => handlePlayAudio(currentCard.hanzi)}
-                className="p-2 text-stone-500 hover:text-red-700 rounded-xl hover:bg-stone-50 transition-colors flex items-center gap-1.5 text-xs font-semibold shrink-0"
+                className={`p-2 rounded-xl transition-all duration-150 flex items-center gap-1.5 text-xs font-semibold shrink-0 active:scale-90 active:ring-4 active:ring-red-300 cursor-pointer ${
+                  isPlayingStandardAudio
+                    ? 'bg-red-100 text-red-800 ring-2 ring-red-400 scale-105 shadow-sm'
+                    : 'text-stone-500 hover:text-red-700 hover:bg-stone-50'
+                }`}
                 title="Nghe phát âm chuẩn người bản xứ"
               >
-                <Volume2 className="w-4 h-4 text-red-700" />
-                <span className="hidden sm:inline">Phát âm chuẩn</span>
+                <Volume2 className={`w-4 h-4 text-red-700 ${isPlayingStandardAudio ? 'animate-bounce' : ''}`} />
+                <span className="hidden sm:inline">{isPlayingStandardAudio ? 'Đang đọc...' : 'Phát âm chuẩn'}</span>
               </button>
             </div>
           </div>
@@ -1049,10 +1059,14 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     <button
                       type="button"
                       onClick={() => handlePlayAudio(currentCard.hanzi)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm shadow-sm transition-all hover:scale-102 active:scale-98"
+                      className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-sm shadow-md transition-all duration-150 active:scale-90 active:ring-4 active:ring-emerald-300 cursor-pointer ${
+                        isPlayingStandardAudio
+                          ? 'bg-emerald-800 text-white ring-4 ring-emerald-400 scale-105'
+                          : 'bg-emerald-700 hover:bg-emerald-800 text-white hover:scale-102'
+                      }`}
                     >
-                      <Volume2 className="w-4 h-4" />
-                      <span>🔊 Bấm để nghe phát âm</span>
+                      <Volume2 className={`w-4 h-4 ${isPlayingStandardAudio ? 'animate-bounce' : ''}`} />
+                      <span>{isPlayingStandardAudio ? '🔊 Đang phát âm...' : '🔊 Bấm để nghe phát âm'}</span>
                     </button>
                   </div>
 
@@ -1496,7 +1510,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   type="button"
                   onClick={handlePlayUserAudio}
                   disabled={!recordedAudioUrl || isPlayingRecordedAudio}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shadow-2xs ${
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all duration-150 shadow-2xs cursor-pointer active:scale-90 active:ring-4 active:ring-stone-400 ${
                     recordedAudioUrl
                       ? 'bg-stone-900 text-white hover:bg-stone-800'
                       : 'bg-stone-100 text-stone-400 cursor-not-allowed'
@@ -1510,10 +1524,14 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 <button
                   type="button"
                   onClick={() => handlePlayAudio(currentCard.hanzi)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-stone-800 border border-stone-200 hover:bg-stone-50 text-xs font-bold transition-all shadow-2xs"
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all duration-150 shadow-2xs cursor-pointer active:scale-90 active:ring-4 active:ring-red-300 ${
+                    isPlayingStandardAudio
+                      ? 'bg-red-100 text-red-800 border-2 border-red-400 ring-2 ring-red-400 scale-105 shadow-sm'
+                      : 'bg-white text-stone-800 border border-stone-200 hover:bg-stone-50'
+                  }`}
                 >
-                  <Volume2 className="w-4 h-4 text-red-700" />
-                  <span>Nghe bản xứ</span>
+                  <Volume2 className={`w-4 h-4 text-red-700 ${isPlayingStandardAudio ? 'animate-bounce' : ''}`} />
+                  <span>{isPlayingStandardAudio ? 'Đang đọc...' : 'Nghe bản xứ'}</span>
                 </button>
               </div>
 
@@ -1523,10 +1541,10 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   type="button"
                   onClick={handleToggleVoiceRecord}
                   disabled={isEvaluating}
-                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95 ${
+                  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center shadow-lg transition-all duration-150 active:scale-85 active:ring-8 cursor-pointer ${
                     isListening
                       ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-300'
-                      : 'bg-stone-950 text-white hover:bg-stone-900'
+                      : 'bg-stone-950 text-white hover:bg-stone-900 active:ring-stone-400'
                   }`}
                   title={isListening ? 'Bấm để dừng và chấm điểm' : 'Bấm để bắt đầu thu âm phát âm'}
                 >
@@ -1555,7 +1573,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRate(1)}
-                    className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all text-center hover:scale-102"
+                    className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all duration-150 text-center active:scale-90 active:ring-4 active:ring-red-300 cursor-pointer shadow-2xs hover:scale-102"
                   >
                     <div>Chưa nhớ (Lại)</div>
                     <div className="text-[10px] text-red-600 font-normal mt-0.5">1 ngày (Ôn lại)</div>
@@ -1563,7 +1581,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRate(2)}
-                    className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all text-center hover:scale-102"
+                    className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all duration-150 text-center active:scale-90 active:ring-4 active:ring-orange-300 cursor-pointer shadow-2xs hover:scale-102"
                   >
                     <div>Khó nhớ</div>
                     <div className="text-[10px] text-orange-600 font-normal mt-0.5">
@@ -1573,7 +1591,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRate(3)}
-                    className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all text-center hover:scale-102"
+                    className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all duration-150 text-center active:scale-90 active:ring-4 active:ring-emerald-300 cursor-pointer shadow-2xs hover:scale-102"
                   >
                     <div>Tốt (Đã nhớ)</div>
                     <div className="text-[10px] text-emerald-600 font-normal mt-0.5">
@@ -1587,7 +1605,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRate(4)}
-                    className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all text-center hover:scale-102"
+                    className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all duration-150 text-center active:scale-90 active:ring-4 active:ring-blue-300 cursor-pointer shadow-2xs hover:scale-102"
                   >
                     <div>Rất dễ (Thuộc làu)</div>
                     <div className="text-[10px] text-blue-600 font-normal mt-0.5">
