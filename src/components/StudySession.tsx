@@ -149,6 +149,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [isPlayingStandardAudio, setIsPlayingStandardAudio] = useState<boolean>(false);
   const activeUserAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const voiceRecorderRef = useRef<{ stop: () => void } | null>(null);
   const micTranscriptRef = useRef<string>('');
@@ -249,17 +250,43 @@ export const StudySession: React.FC<StudySessionProps> = ({
     }
   }, [currentIndex, studyQueue, studyMode, setupCardForIndex]);
 
+  // Stop all active voice recording processes and release hardware tracks
+  const stopVoiceRecording = useCallback(() => {
+    setIsListening(false);
+    if (voiceRecorderRef.current) {
+      try {
+        voiceRecorderRef.current.stop();
+      } catch {}
+      voiceRecorderRef.current = null;
+    }
+    if (audioRecorderRef.current) {
+      if (audioRecorderRef.current.state === 'recording') {
+        try {
+          audioRecorderRef.current.stop();
+        } catch {}
+      }
+    }
+    if (mediaStreamRef.current) {
+      try {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
+      mediaStreamRef.current = null;
+    }
+  }, []);
+
   // Cleanup timers & audio on unmount or card change
   useEffect(() => {
+    if (currentCard?.hanzi) {
+      // Pre-warm HTTP cache for instant playback on mobile and PC
+      fetch(`/api/tts?text=${encodeURIComponent(currentCard.hanzi)}`).catch(() => {});
+    }
     return () => {
       if (autoAdvanceTimerRef.current) {
         clearTimeout(autoAdvanceTimerRef.current);
       }
-      if (voiceRecorderRef.current) {
-        voiceRecorderRef.current.stop();
-      }
+      stopVoiceRecording();
     };
-  }, []);
+  }, [currentCard?.hanzi, stopVoiceRecording]);
 
   const isSpeakingRef = useRef(false);
 
@@ -523,26 +550,29 @@ export const StudySession: React.FC<StudySessionProps> = ({
   // Toggle Voice Recording with Gemini AI Pronunciation Check (PC Bluetooth & Mobile compatible)
   const handleToggleVoiceRecord = async () => {
     if (isListening) {
-      // Stop recording
-      setIsListening(false);
-      if (voiceRecorderRef.current) {
-        voiceRecorderRef.current.stop();
-      }
-      if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
-        audioRecorderRef.current.stop();
-      } else {
-        evaluateVoice(micTranscriptRef.current);
-      }
+      // User tapped mic button to finish recording
+      stopVoiceRecording();
       return;
     }
 
     if (!currentCard) return;
+
+    // Reset previous recording state and ensure hardware tracks are cleared
+    stopVoiceRecording();
 
     setIsListening(true);
     setMicTranscript('');
     micTranscriptRef.current = '';
     setEvalResult(null);
     audioChunksRef.current = [];
+
+    // Pause any playing audio
+    if (activeUserAudioRef.current) {
+      try {
+        activeUserAudioRef.current.pause();
+        activeUserAudioRef.current = null;
+      } catch {}
+    }
 
     // 1. Capture user microphone for playback (Supports PC Bluetooth Headsets & Mobile)
     try {
@@ -558,6 +588,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
+
+      mediaStreamRef.current = stream;
 
       let options: MediaRecorderOptions = {};
       if (typeof MediaRecorder !== 'undefined') {
@@ -586,7 +618,14 @@ export const StudySession: React.FC<StudySessionProps> = ({
         const audioBlob = new Blob(audioChunksRef.current, { type: mime });
         const url = URL.createObjectURL(audioBlob);
         setRecordedAudioUrl(url);
-        stream.getTracks().forEach((track) => track.stop());
+
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+        } catch {}
+        if (mediaStreamRef.current === stream) {
+          mediaStreamRef.current = null;
+        }
+        audioRecorderRef.current = null;
 
         // Single authoritative evaluation trigger with full audio blob
         evaluateVoice(micTranscriptRef.current, audioBlob);
@@ -604,20 +643,12 @@ export const StudySession: React.FC<StudySessionProps> = ({
         micTranscriptRef.current = transcript;
 
         if (isFinal) {
-          setIsListening(false);
-          if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
-            audioRecorderRef.current.stop();
-          } else {
-            evaluateVoice(transcript);
-          }
+          stopVoiceRecording();
         }
       },
       (error: any) => {
-        setIsListening(false);
-        if (audioRecorderRef.current && audioRecorderRef.current.state === 'recording') {
-          audioRecorderRef.current.stop();
-        }
         console.warn('Speech recognition notice:', error);
+        stopVoiceRecording();
       }
     );
 

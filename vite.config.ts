@@ -60,8 +60,14 @@ function apiServerPlugin(): Plugin {
         if (req.url === '/api/evaluate-pronunciation' && req.method === 'POST') {
           try {
             const body = await readBody();
-            const { targetHanzi, targetPinyin, recognizedText } = body;
-            const evaluation = await evaluatePronunciation(targetHanzi, targetPinyin || '', recognizedText || '');
+            const { targetHanzi, targetPinyin, recognizedText, audioBase64, audioMimeType } = body;
+            const evaluation = await evaluatePronunciation(
+              targetHanzi,
+              targetPinyin || '',
+              recognizedText || '',
+              audioBase64,
+              audioMimeType || 'audio/webm'
+            );
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ success: true, evaluation }));
@@ -147,6 +153,81 @@ function apiServerPlugin(): Plugin {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ success: true, blacklist: [] }));
           return;
+        }
+
+        if (req.url?.startsWith('/api/tts') && req.method === 'GET') {
+          try {
+            const urlObj = new URL(req.url, 'http://localhost:3000');
+            const text = (urlObj.searchParams.get('text') || '').trim();
+            if (!text) {
+              res.statusCode = 400;
+              res.end('Missing text parameter');
+              return;
+            }
+
+            const urls = [
+              `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&le=zh`,
+              `https://translate.google.com/translate_tts?ie=UTF-8&tl=zh-CN&client=tw-ob&q=${encodeURIComponent(text)}`,
+            ];
+
+            let audioBuffer: Buffer | null = null;
+            let mimeType = 'audio/mpeg';
+
+            for (const u of urls) {
+              try {
+                const resp = await fetch(u, {
+                  headers: {
+                    'User-Agent':
+                      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                    Referer: 'https://translate.google.com/',
+                  },
+                });
+                if (resp.ok) {
+                  const arr = await resp.arrayBuffer();
+                  audioBuffer = Buffer.from(arr);
+                  mimeType = resp.headers.get('content-type') || 'audio/mpeg';
+                  break;
+                }
+              } catch (_) {}
+            }
+
+            if (!audioBuffer) {
+              res.statusCode = 502;
+              res.end('Unable to generate TTS');
+              return;
+            }
+
+            const totalLength = audioBuffer.length;
+            const range = req.headers.range;
+
+            if (range) {
+              const parts = range.replace(/bytes=/, '').split('-');
+              const start = parseInt(parts[0], 10) || 0;
+              const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+              const chunksize = end - start + 1;
+
+              res.statusCode = 206;
+              res.setHeader('Content-Range', `bytes ${start}-${end}/${totalLength}`);
+              res.setHeader('Accept-Ranges', 'bytes');
+              res.setHeader('Content-Length', chunksize);
+              res.setHeader('Content-Type', mimeType);
+              res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+              res.end(audioBuffer.subarray(start, end + 1));
+              return;
+            }
+
+            res.statusCode = 200;
+            res.setHeader('Content-Type', mimeType);
+            res.setHeader('Content-Length', totalLength);
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+            res.end(audioBuffer);
+            return;
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.end('TTS server error: ' + (err?.message || 'unknown'));
+            return;
+          }
         }
 
         if (req.url === '/api/health') {
