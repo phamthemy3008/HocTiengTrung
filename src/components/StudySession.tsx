@@ -201,7 +201,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
     } else {
       // vietnamese_to_writing
       setActiveSheet('writing');
-      setShowWritingMeaning(true);
+      // If card has contextClue, hide direct meaning by default so learner infers meaning from clue!
+      setShowWritingMeaning(!card.contextClue);
       setShowWritingHint(false);
       setShowReadingMeaning(false);
       setShowReadingPinyin(false);
@@ -1132,15 +1133,59 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   </div>
                 </div>
               ) : (
-                /* CHẾ ĐỘ 1: NHÌN NGHĨA TIẾNG VIỆT → VIẾT HÁN TỰ */
-                <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-1 shadow-2xs animate-in fade-in">
-                  <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
-                    Nghĩa Tiếng Việt (Hãy nhớ và viết chữ Hán tương ứng)
-                  </span>
-                  <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
-                    {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
-                  </h3>
-                </div>
+                /* CHẾ ĐỘ 1: NHÌN NGHĨA TIẾNG VIỆT HOẶC GỢI Ý NGỮ CẢNH → VIẾT HÁN TỰ */
+                currentCard.contextClue ? (
+                  <div className="p-4 bg-gradient-to-b from-[#fbf9f5] to-[#f8f6f0] rounded-2xl border border-amber-200/90 text-center space-y-3 shadow-2xs animate-in fade-in">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100/90 text-amber-900 border border-amber-300/80 text-[11px] font-bold shadow-2xs">
+                      <span>🧩 Gợi ý ngữ cảnh / Câu đố suy luận</span>
+                    </div>
+
+                    {/* Đoạn mô tả ngữ cảnh để tự suy luận ra từ */}
+                    <p className="text-sm sm:text-base font-semibold text-stone-800 leading-relaxed max-w-xl mx-auto font-vietnamese">
+                      "{currentCard.contextClue}"
+                    </p>
+
+                    {/* Nút hiển thị nghĩa tiếng Việt cốt lõi */}
+                    <div>
+                      {!showWritingMeaning ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowWritingMeaning(true)}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-stone-800 bg-white hover:bg-stone-50 border border-stone-200 hover:border-amber-400 transition-all duration-150 shadow-2xs active:scale-95 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-amber-600" />
+                          <span>👁️ Hiển thị nghĩa tiếng Việt</span>
+                        </button>
+                      ) : (
+                        <div className="pt-2 border-t border-stone-200/80 space-y-1.5 animate-in fade-in">
+                          <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
+                            Nghĩa chính xác:
+                          </span>
+                          <h3 className="text-2xl sm:text-3xl font-bold text-red-900 font-vietnamese">
+                            {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setShowWritingMeaning(false)}
+                            className="text-[11px] text-stone-500 hover:text-stone-800 underline inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <EyeOff className="w-3 h-3" />
+                            <span>Ẩn nghĩa tiếng Việt</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-1 shadow-2xs animate-in fade-in">
+                    <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
+                      Nghĩa Tiếng Việt (Hãy nhớ và viết chữ Hán tương ứng)
+                    </span>
+                    <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
+                      {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                    </h3>
+                  </div>
+                )
               )}
 
               {/* Khung ô tập viết chữ Mễ (米字格) */}

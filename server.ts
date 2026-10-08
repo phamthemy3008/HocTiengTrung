@@ -2,7 +2,12 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import { extractVocabularyFromImage, evaluatePronunciation, checkHandwritingMatch } from './api/gemini';
+import {
+  extractVocabularyFromImage,
+  evaluatePronunciation,
+  checkHandwritingMatch,
+  generateSmartVocab,
+} from './api/gemini';
 import { getSystemDecksAndCards, saveSystemVocab, resetSystemVocabToDefault } from './api/systemDecks';
 
 dotenv.config();
@@ -128,6 +133,21 @@ app.post('/api/ocr-vocab', async (req, res) => {
   } catch (err: any) {
     console.error('OCR Error:', err);
     res.status(500).json({ error: err.message || 'Lỗi khi nhận diện từ vựng qua ảnh' });
+  }
+});
+
+// Smart AI Vocab Generation (Vietnamese -> Chinese & Context Clue, or Chinese -> Vietnamese & Context Clue)
+app.post('/api/generate-vocab-smart', async (req, res) => {
+  try {
+    const { input, sourceLang } = req.body;
+    if (!input || !input.trim()) {
+      return res.status(400).json({ error: 'Missing input text' });
+    }
+    const vocab = await generateSmartVocab(input.trim(), sourceLang);
+    res.json({ success: true, vocab });
+  } catch (err: any) {
+    console.error('Smart Vocab Generation Error:', err);
+    res.status(500).json({ error: err.message || 'Lỗi khi tạo từ vựng AI' });
   }
 });
 

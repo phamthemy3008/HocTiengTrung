@@ -349,3 +349,71 @@ Hãy kiểm tra kỹ lưỡng hình ảnh chữ viết tay của học viên và
   }
 }
 
+/**
+ * Tự động tạo từ vựng thông minh bằng AI Gemini:
+ * 1. User nhập tiếng Việt -> AI suy ra tiếng Trung + Pinyin + tạo Gợi ý ngữ cảnh / mô tả câu đố + câu ví dụ
+ * 2. User nhập tiếng Trung -> AI suy ra tiếng Việt + Pinyin + tạo Gợi ý ngữ cảnh / mô tả câu đố + câu ví dụ
+ */
+export async function generateSmartVocab(input: string, sourceLang?: 'vi' | 'zh') {
+  const ai = getGeminiClient();
+
+  const prompt = `
+Bạn là chuyên gia ngôn ngữ học và sư phạm tiếng Trung - tiếng Việt hàng đầu.
+Người dùng cung cấp một từ hoặc cụm từ: "${input.trim()}".
+Nguồn ngôn ngữ được chỉ định: ${sourceLang ? (sourceLang === 'vi' ? 'Tiếng Việt' : 'Tiếng Trung') : 'Tự nhận diện'}.
+
+Nhiệm vụ của bạn:
+1. Nếu từ đầu vào là Tiếng Việt:
+   - "hanzi": Tìm chữ Hán giản thể chuẩn xác nhất, phổ biến nhất trong giao tiếp hoặc giáo trình HSK.
+   - "pinyin": Phiên âm Pinyin chuẩn có dấu thanh điệu (ví dụ: nǐ hǎo).
+   - "meaning": Nghĩa tiếng Việt chuẩn xác, giữ nguyên nghĩa cốt lõi, ngắn gọn.
+   - "contextClue": Tạo một đoạn mô tả ngữ cảnh / câu đố gợi mở sinh động (1-2 câu tiếng Việt) mô tả tình huống, hoàn cảnh sử dụng hoặc hành động cụ thể để người học có thể tự suy luận ra nghĩa mà không nói thẳng từ đó ra. (Ví dụ với "xin chào": "Lời chào hỏi mở đầu cuộc gặp gỡ thân thiện và phổ biến nhất khi gặp ai đó.").
+   - "exampleSentence": Một câu ví dụ tiếng Trung ngắn gọn, tự nhiên chứa từ đó.
+   - "examplePinyin": Pinyin của câu ví dụ.
+   - "exampleMeaning": Dịch nghĩa tiếng Việt của câu ví dụ.
+
+2. Nếu từ đầu vào là Tiếng Trung (hoặc chữ Hán / Pinyin):
+   - "hanzi": Chuẩn hóa chữ Hán giản thể chuẩn.
+   - "pinyin": Phiên âm Pinyin chuẩn có dấu thanh điệu.
+   - "meaning": Dịch sang nghĩa tiếng Việt chính xác, tự nhiên, ngắn gọn.
+   - "contextClue": Tạo một đoạn mô tả ngữ cảnh / câu đố gợi mở sinh động (1-2 câu tiếng Việt) mô tả tình huống, hoàn cảnh sử dụng hoặc hành động cụ thể để người học có thể tự suy luận ra nghĩa mà không nói thẳng từ đó ra.
+   - "exampleSentence": Một câu ví dụ tiếng Trung ngắn gọn chứa từ đó.
+   - "examplePinyin": Pinyin của câu ví dụ.
+   - "exampleMeaning": Dịch nghĩa tiếng Việt của câu ví dụ.
+
+Chỉ trả về JSON theo đúng Schema.
+`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.8-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          hanzi: { type: Type.STRING, description: 'Chữ Hán giản thể chuẩn' },
+          pinyin: { type: Type.STRING, description: 'Phiên âm Pinyin có dấu thanh điệu' },
+          meaning: { type: Type.STRING, description: 'Nghĩa tiếng Việt cốt lõi' },
+          contextClue: { type: Type.STRING, description: 'Đoạn gợi ý ngữ cảnh / câu đố để tự suy ra nghĩa' },
+          exampleSentence: { type: Type.STRING, description: 'Câu ví dụ tiếng Trung' },
+          examplePinyin: { type: Type.STRING, description: 'Pinyin của câu ví dụ' },
+          exampleMeaning: { type: Type.STRING, description: 'Dịch nghĩa tiếng Việt của câu ví dụ' },
+        },
+        required: [
+          'hanzi',
+          'pinyin',
+          'meaning',
+          'contextClue',
+          'exampleSentence',
+          'examplePinyin',
+          'exampleMeaning',
+        ],
+      },
+    },
+  });
+
+  const jsonText = response.text?.trim() || '{}';
+  return JSON.parse(jsonText);
+}
+

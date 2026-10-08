@@ -3,7 +3,12 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import dotenv from 'dotenv';
 import { defineConfig, Plugin } from 'vite';
-import { extractVocabularyFromImage, evaluatePronunciation, checkHandwritingMatch } from './api/gemini';
+import {
+  extractVocabularyFromImage,
+  evaluatePronunciation,
+  checkHandwritingMatch,
+  generateSmartVocab,
+} from './api/gemini';
 import { getSystemDecksAndCards, importSystemCards } from './api/systemDecks';
 
 dotenv.config();
@@ -53,6 +58,29 @@ function apiServerPlugin(): Plugin {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: err.message || 'Lỗi nhận diện ảnh' }));
+          }
+          return;
+        }
+
+        if (req.url === '/api/generate-vocab-smart' && req.method === 'POST') {
+          try {
+            const body = await readBody();
+            const { input, sourceLang } = body;
+            if (!input || !input.trim()) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Vui lòng nhập từ hoặc cụm từ' }));
+              return;
+            }
+            const vocab = await generateSmartVocab(input.trim(), sourceLang);
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: true, vocab }));
+          } catch (err: any) {
+            console.error('Vite API Generate Smart Vocab error:', err);
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message || 'Lỗi tạo từ vựng AI' }));
           }
           return;
         }

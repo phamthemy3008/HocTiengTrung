@@ -23,6 +23,7 @@ export const INITIAL_CARDS: Card[] = [
     "hanzi": "你好",
     "pinyin": "nǐ hǎo",
     "meaning": "xin chào",
+    "contextClue": "Lời chào hỏi mở đầu cuộc gặp gỡ thân thiện và phổ biến nhất khi gặp ai đó.",
     "tags": [
       "Bài 1",
       "HSK 1"
@@ -42,6 +43,7 @@ export const INITIAL_CARDS: Card[] = [
     "hanzi": "大家",
     "pinyin": "dàjiā",
     "meaning": "mọi người",
+    "contextClue": "Từ dùng để gọi toàn thể những người cùng có mặt trong một tập thể hoặc nhóm.",
     "tags": [
       "Bài 1",
       "HSK 1"
@@ -61,6 +63,7 @@ export const INITIAL_CARDS: Card[] = [
     "hanzi": "好",
     "pinyin": "hǎo",
     "meaning": "tốt, khỏe",
+    "contextClue": "Tính từ chỉ trạng thái tích cực, tốt lành hoặc sức khỏe ổn thỏa.",
     "tags": [
       "Bài 1",
       "HSK 1"
@@ -80,6 +83,7 @@ export const INITIAL_CARDS: Card[] = [
     "hanzi": "学生",
     "pinyin": "xuéshēng",
     "meaning": "học sinh, sinh viên",
+    "contextClue": "Người đang học tập tại trường lớp dưới sự dẫn dắt của thầy cô giáo.",
     "tags": [
       "Bài 1",
       "HSK 1"
@@ -99,6 +103,7 @@ export const INITIAL_CARDS: Card[] = [
     "hanzi": "老师",
     "pinyin": "lǎoshī",
     "meaning": "thầy, cô",
+    "contextClue": "Người làm nghề truyền đạt kiến thức, dạy học và giảng bài cho học sinh.",
     "tags": [
       "Bài 1",
       "HSK 1"

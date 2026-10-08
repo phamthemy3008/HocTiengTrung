@@ -13,6 +13,8 @@ import {
   Layers,
   Sparkles,
   Tag,
+  Loader2,
+  Wand2,
 } from 'lucide-react';
 import { Card, Deck } from '../types';
 import { speechService } from '../services/speech';
@@ -56,10 +58,17 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   const [cardHanzi, setCardHanzi] = useState<string>('');
   const [cardPinyin, setCardPinyin] = useState<string>('');
   const [cardMeaning, setCardMeaning] = useState<string>('');
+  const [cardContextClue, setCardContextClue] = useState<string>('');
   const [cardExample, setCardExample] = useState<string>('');
   const [cardExampleMeaning, setCardExampleMeaning] = useState<string>('');
   const [cardTags, setCardTags] = useState<string[]>([]);
   const [cardTagInput, setCardTagInput] = useState<string>('');
+
+  // AI Smart Vocab Auto-fill states
+  const [isGeneratingAi, setIsGeneratingAi] = useState<boolean>(false);
+  const [aiSmartInput, setAiSmartInput] = useState<string>('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSuccessMessage, setAiSuccessMessage] = useState<string | null>(null);
 
   // State for Anki Import modal
   const [isAnkiModalOpen, setIsAnkiModalOpen] = useState<boolean>(false);
@@ -124,6 +133,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
       hanzi: c.hanzi,
       pinyin: c.pinyin,
       meaning: c.meaning,
+      contextClue: c.contextClue,
       exampleSentence: c.exampleSentence,
       examplePinyin: c.examplePinyin,
       exampleMeaning: c.exampleMeaning,
@@ -205,6 +215,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
       setCardHanzi(card.hanzi);
       setCardPinyin(card.pinyin || '');
       setCardMeaning(card.meaning);
+      setCardContextClue(card.contextClue || '');
       setCardExample(card.exampleSentence || '');
       setCardExampleMeaning(card.exampleMeaning || '');
       setCardTags(card.tags ? [...card.tags] : []);
@@ -213,12 +224,57 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
       setCardHanzi('');
       setCardPinyin('');
       setCardMeaning('');
+      setCardContextClue('');
       setCardExample('');
       setCardExampleMeaning('');
       setCardTags([]);
     }
     setCardTagInput('');
+    setAiSmartInput('');
+    setAiError(null);
+    setAiSuccessMessage(null);
     setIsCardModalOpen(true);
+  };
+
+  // AI Smart Vocab Auto-fill: Vietnamese -> Chinese & Context Clue, or Chinese -> Vietnamese & Context Clue
+  const handleAiGenerateSmart = async (textToUse?: string, sourceLang?: 'vi' | 'zh') => {
+    const input = (textToUse !== undefined ? textToUse : aiSmartInput).trim();
+    if (!input) {
+      setAiError('Vui lòng nhập từ tiếng Việt hoặc chữ Hán để AI tạo.');
+      return;
+    }
+
+    setIsGeneratingAi(true);
+    setAiError(null);
+    setAiSuccessMessage(null);
+
+    try {
+      const res = await fetch('/api/generate-vocab-smart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input, sourceLang }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.vocab) {
+        throw new Error(data.error || 'Không thể tạo từ vựng bằng AI.');
+      }
+
+      const v = data.vocab;
+      if (v.hanzi) setCardHanzi(v.hanzi);
+      if (v.pinyin) setCardPinyin(v.pinyin);
+      if (v.meaning) setCardMeaning(v.meaning);
+      if (v.contextClue) setCardContextClue(v.contextClue);
+      if (v.exampleSentence) setCardExample(v.exampleSentence);
+      if (v.exampleMeaning) setCardExampleMeaning(v.exampleMeaning);
+
+      setAiSuccessMessage(`✓ Đã điền xong: ${v.hanzi} (${v.pinyin}) - ${v.meaning}`);
+      setTimeout(() => setAiSuccessMessage(null), 4000);
+    } catch (err: any) {
+      setAiError(err.message || 'Lỗi khi kết nối với AI Gemini.');
+    } finally {
+      setIsGeneratingAi(false);
+    }
   };
 
   const handleSaveCardSubmit = async (e: React.FormEvent) => {
@@ -235,6 +291,7 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
       hanzi: cardHanzi.trim(),
       pinyin: cardPinyin.trim(),
       meaning: cardMeaning.trim(),
+      contextClue: cardContextClue.trim() || undefined,
       exampleSentence: cardExample.trim() || undefined,
       exampleMeaning: cardExampleMeaning.trim() || undefined,
       tags: cardTags.length > 0 ? cardTags : undefined,
@@ -630,6 +687,15 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                     {/* Meaning + Tags */}
                     <td className="py-3 px-4 font-medium text-stone-800 font-vietnamese">
                       <div>{card.meaning ? card.meaning.normalize('NFC') : ''}</div>
+                      {card.contextClue && (
+                        <div
+                          className="text-[11px] text-amber-900 bg-amber-50/90 rounded px-1.5 py-0.5 mt-1 border border-amber-200/70 inline-flex items-center gap-1 font-normal max-w-xs truncate"
+                          title={card.contextClue}
+                        >
+                          <span>🧩</span>
+                          <span className="italic truncate">{card.contextClue}</span>
+                        </div>
+                      )}
                       {card.tags && card.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {card.tags.map((t) => (
@@ -796,15 +862,72 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
       {isCardModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200">
-            <h3 className="font-bold text-stone-900 text-lg mb-4">
+            <h3 className="font-bold text-stone-900 text-lg mb-3">
               {editingCard ? 'Chỉnh Sửa Thẻ Từ Vựng' : 'Thêm Thẻ Từ Vựng Mới'}
             </h3>
-            <form onSubmit={handleSaveCardSubmit} className="space-y-3.5 text-xs">
+            <form onSubmit={handleSaveCardSubmit} className="space-y-3 text-xs">
+              {/* Smart AI Vocab Assistant */}
+              <div className="p-3 bg-gradient-to-r from-red-50/80 via-amber-50/80 to-stone-50 rounded-xl border border-red-200/90 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[11px] text-red-950 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                    <span>✨ AI Tự Động Phân Tích & Điền Cả Bộ:</span>
+                  </span>
+                  <span className="text-[10px] text-red-700 font-semibold bg-red-100/80 px-1.5 py-0.2 rounded">Gemini AI</span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Nhập tiếng Việt (vd: bạn bè) HOẶC tiếng Hán (vd: 朋友)..."
+                    value={aiSmartInput}
+                    onChange={(e) => setAiSmartInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAiGenerateSmart(aiSmartInput);
+                      }
+                    }}
+                    className="flex-1 px-3 py-1.5 bg-white border border-stone-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-red-600 font-medium"
+                  />
+                  <button
+                    type="button"
+                    disabled={isGeneratingAi || !aiSmartInput.trim()}
+                    onClick={() => handleAiGenerateSmart(aiSmartInput)}
+                    className="px-3 py-1.5 bg-red-700 hover:bg-red-800 disabled:bg-stone-300 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shrink-0 active:scale-95 cursor-pointer shadow-2xs"
+                  >
+                    {isGeneratingAi ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                    )}
+                    <span>{isGeneratingAi ? 'Đang tạo...' : 'AI Điền'}</span>
+                  </button>
+                </div>
+
+                {aiError && <p className="text-[11px] text-red-600 font-medium">⚠️ {aiError}</p>}
+                {aiSuccessMessage && <p className="text-[11px] text-emerald-700 font-bold">{aiSuccessMessage}</p>}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Chữ Hán: *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-stone-700">
+                      Chữ Hán: *
+                    </label>
+                    {cardHanzi.trim() && (
+                      <button
+                        type="button"
+                        disabled={isGeneratingAi}
+                        onClick={() => handleAiGenerateSmart(cardHanzi, 'zh')}
+                        className="text-[10px] text-red-700 hover:text-red-900 font-bold inline-flex items-center gap-0.5 hover:underline cursor-pointer"
+                        title="Dùng AI để dịch chữ Hán này sang tiếng Việt và tạo gợi ý ngữ cảnh"
+                      >
+                        <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                        <span>AI Dịch & Gợi ý</span>
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
@@ -829,9 +952,23 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  Nghĩa Tiếng Việt: *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-stone-700">
+                    Nghĩa Tiếng Việt: *
+                  </label>
+                  {cardMeaning.trim() && (
+                    <button
+                      type="button"
+                      disabled={isGeneratingAi}
+                      onClick={() => handleAiGenerateSmart(cardMeaning, 'vi')}
+                      className="text-[10px] text-red-700 hover:text-red-900 font-bold inline-flex items-center gap-0.5 hover:underline cursor-pointer"
+                      title="Dùng AI để tìm chữ Hán, Pinyin và tạo gợi ý ngữ cảnh từ nghĩa tiếng Việt này"
+                    >
+                      <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                      <span>AI Tìm Hán tự & Gợi ý</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   type="text"
                   required
@@ -840,6 +977,25 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                   onChange={(e) => setCardMeaning(e.target.value)}
                   className="w-full px-3 py-1.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-600"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-stone-700">
+                    🧩 Gợi ý ngữ cảnh / Câu đố (Context Clue):
+                  </label>
+                  <span className="text-[11px] text-stone-400">Không bắt buộc</span>
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="Ví dụ: Hoạt động thu nạp kiến thức mới qua sách vở, thầy cô và trường lớp..."
+                  value={cardContextClue}
+                  onChange={(e) => setCardContextClue(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-stone-50 border border-stone-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-red-600 text-xs"
+                />
+                <p className="text-[11px] text-stone-400 mt-0.5">
+                  Đoạn mô tả tình huống/ngữ cảnh để tự suy luận ra từ trước khi mở xem nghĩa tiếng Việt.
+                </p>
               </div>
 
               <div>

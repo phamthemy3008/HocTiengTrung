@@ -9,6 +9,7 @@ export interface Card {
   hanzi: string;
   pinyin: string;
   meaning: string;
+  contextClue?: string; // Gợi ý ngữ cảnh / Câu đố suy luận nghĩa
   exampleSentence?: string;
   examplePinyin?: string;
   exampleMeaning?: string;
@@ -75,6 +76,7 @@ export interface OcrExtractedWord {
   hanzi: string;
   pinyin: string;
   meaning: string;
+  contextClue?: string;
   exampleSentence?: string;
   examplePinyin?: string;
   exampleMeaning?: string;
