@@ -369,6 +369,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       } catch {}
       mediaStreamRef.current = null;
+      speechService.configureAudioSession();
+      speechService.unlockAudio();
     }
   }, []);
 

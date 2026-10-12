@@ -29,6 +29,7 @@ const ttsCache = new Map<string, { buffer: Buffer; mimeType: string }>();
 
 // High-definition Native Mandarin TTS Audio Endpoint (Same-origin, 100% reliable across all browsers & iOS)
 app.get('/api/tts', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const text = ((req.query.text as string) || '').trim();
   if (!text) {
     return res.status(400).send('Missing text parameter');

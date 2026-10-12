@@ -208,6 +208,7 @@ function apiServerPlugin(): Plugin {
         }
 
         if (req.url?.startsWith('/api/tts') && req.method === 'GET') {
+          res.setHeader('Access-Control-Allow-Origin', '*');
           try {
             const urlObj = new URL(req.url, 'http://localhost:3000');
             const text = (urlObj.searchParams.get('text') || '').trim();
