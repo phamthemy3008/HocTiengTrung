@@ -428,6 +428,7 @@ export default function App() {
             onOpenGuide={() => setIsUserGuideOpen(true)}
             onToggleWeakStatus={handleToggleWeakStatus}
             openWeakCardsModal={() => setIsWeakCardsModalOpen(true)}
+            onSaveCard={handleSaveCard}
           />
         )}
 

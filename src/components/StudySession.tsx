@@ -28,11 +28,21 @@ import {
   Headphones,
   BookText,
   AlertTriangle,
+  Loader2,
+  Keyboard,
+  CornerDownLeft,
+  XCircle,
 } from 'lucide-react';
 import { Card, Deck, StudyMode, PronunciationEvaluation, SyllableDetail, PhoneticMistake } from '../types';
 import { HanziCanvas } from './HanziCanvas';
 import { speechService } from '../services/speech';
 import { formatInterval, sortCardsForSM2Queue } from '../services/srs';
+import {
+  isPinyinMatch,
+  generateImeCandidates,
+  ImeCandidate,
+  MOBILE_TONE_BUTTONS,
+} from '../services/pinyinHelper';
 
 interface StudySessionProps {
   cards: Card[];
@@ -44,6 +54,7 @@ interface StudySessionProps {
   onOpenGuide?: () => void;
   onToggleWeakStatus?: (cardId: string, isWeak: boolean) => Promise<void>;
   openWeakCardsModal?: () => void;
+  onSaveCard?: (card: Card) => Promise<void>;
 }
 
 export const StudySession: React.FC<StudySessionProps> = ({
@@ -56,6 +67,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   onOpenGuide,
   onToggleWeakStatus,
   openWeakCardsModal,
+  onSaveCard,
 }) => {
   const currentDeckSelectId = useId();
   const studyModeSelectId = useId();
@@ -70,7 +82,18 @@ export const StudySession: React.FC<StudySessionProps> = ({
   // Active Sheet inside the single unified study card:
   // 'writing': Sheet 1 - Tập viết chữ Hán (Hanzi Canvas)
   // 'reading': Sheet 2 - Luyện đọc & Phát âm AI (Speech Recognition & Evaluation)
-  const [activeSheet, setActiveSheet] = useState<'writing' | 'reading'>('writing');
+  // 'typing': Sheet 3 - Luyện gõ Pinyin (Pinyin Typing & IME Simulator)
+  const [activeSheet, setActiveSheet] = useState<'writing' | 'reading' | 'typing'>('writing');
+
+  // Pinyin typing states
+  const [typingInput, setTypingInput] = useState<string>('');
+  const [isTypingSubmitted, setIsTypingSubmitted] = useState<boolean>(false);
+  const [isTypingCorrect, setIsTypingCorrect] = useState<boolean>(false);
+  const [isTypingExactTone, setIsTypingExactTone] = useState<boolean>(false);
+  const [isTypingShake, setIsTypingShake] = useState<boolean>(false);
+  const [showPinyinHint, setShowPinyinHint] = useState<boolean>(false);
+  const [showMobileTones, setShowMobileTones] = useState<boolean>(false);
+  const typingInputRef = useRef<HTMLInputElement | null>(null);
 
   // Selected Tags for filtering study session (multi-selection)
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -155,13 +178,54 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const micTranscriptRef = useRef<string>('');
   const autoAdvanceTimerRef = useRef<any>(null);
 
+  const [isGeneratingClue, setIsGeneratingClue] = useState<boolean>(false);
+
+  // Generate context clue / noun description on the fly if currentCard is missing it
+  const handleGenerateClueForCurrentCard = async () => {
+    if (!currentCard || isGeneratingClue) return;
+    setIsGeneratingClue(true);
+    try {
+      const res = await fetch('/api/generate-context-clue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hanzi: currentCard.hanzi,
+          meaning: currentCard.meaning,
+          pinyin: currentCard.pinyin,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.contextClue) {
+        const updatedCard: Card = {
+          ...currentCard,
+          contextClue: data.contextClue,
+        };
+        // Update current study queue
+        setStudyQueue((prev) =>
+          prev.map((c) => (c.id === currentCard.id ? updatedCard : c))
+        );
+        // Hide direct meaning so the newly created context clue takes effect for guessing!
+        setShowWritingMeaning(false);
+        // Persist card if handler provided
+        if (onSaveCard) {
+          await onSaveCard(updatedCard);
+        }
+      }
+    } catch (err) {
+      console.error('Error generating clue for current card:', err);
+    } finally {
+      setIsGeneratingClue(false);
+    }
+  };
+
   // Calculate effective mode for current card in study session
   const currentEffectiveMode = useMemo<Exclude<StudyMode, 'random'>>(() => {
     if (studyMode !== 'random') return studyMode;
     const modes: Exclude<StudyMode, 'random'>[] = [
       'vietnamese_to_writing', // Card 0: Nhìn Nghĩa TV → Viết
-      'hanzi_to_meaning',      // Card 1: Nhớ Nghĩa & Luyện Đọc
-      'audio_to_writing',      // Card 2: Nghe Âm → Viết (Ẩn nghĩa)
+      'pinyin_to_hanzi',      // Card 1: Gõ Pinyin → Chữ Hán
+      'hanzi_to_meaning',      // Card 2: Nhớ Nghĩa & Luyện Đọc
+      'audio_to_writing',      // Card 3: Nghe Âm → Viết (Ẩn nghĩa)
     ];
     return modes[currentIndex % modes.length];
   }, [studyMode, currentIndex]);
@@ -175,6 +239,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
     if (currentStudyMode === 'random') {
       const modes: Exclude<StudyMode, 'random'>[] = [
         'vietnamese_to_writing',
+        'pinyin_to_hanzi',
         'hanzi_to_meaning',
         'audio_to_writing',
       ];
@@ -183,7 +248,19 @@ export const StudySession: React.FC<StudySessionProps> = ({
       effMode = currentStudyMode;
     }
 
-    if (effMode === 'hanzi_to_meaning') {
+    // Reset typing states
+    setTypingInput('');
+    setIsTypingSubmitted(false);
+    setIsTypingCorrect(false);
+    setIsTypingExactTone(false);
+    setShowPinyinHint(false);
+
+    if (effMode === 'pinyin_to_hanzi') {
+      setActiveSheet('typing');
+      setShowWritingHint(false);
+      setShowReadingMeaning(false);
+      setShowReadingPinyin(false);
+    } else if (effMode === 'hanzi_to_meaning') {
       setActiveSheet('reading');
       setShowReadingMeaning(false);
       setShowReadingPinyin(false);
@@ -387,8 +464,113 @@ export const StudySession: React.FC<StudySessionProps> = ({
       setAutoAdvanceCountdown(null);
     }
 
-    await onRecordReview(currentCard, rating, activeSheet);
+    const reviewMode = activeSheet === 'typing' ? 'pinyin_typing' : activeSheet;
+    await onRecordReview(currentCard, rating, reviewMode);
     advanceToNextCard();
+  };
+
+  // IME candidates for current card
+  const imeCandidates = useMemo(() => {
+    if (!currentCard) return [];
+    return generateImeCandidates(currentCard, cards);
+  }, [currentCard, cards]);
+
+  // Autofocus typing input on desktop when Sheet 3 is active
+  useEffect(() => {
+    if (activeSheet === 'typing' && !isTypingCorrect && typingInputRef.current) {
+      const timer = setTimeout(() => {
+        typingInputRef.current?.focus();
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSheet, currentIndex, isTypingCorrect]);
+
+  // Verify typed Pinyin
+  const handleCheckPinyin = (inputOverride?: string) => {
+    if (!currentCard || autoAdvanceCountdown !== null || isTypingCorrect) return;
+    const val = (inputOverride !== undefined ? inputOverride : typingInput).trim();
+    if (!val) return;
+
+    const result = isPinyinMatch(val, currentCard.pinyin);
+    if (result.isMatch) {
+      setIsTypingCorrect(true);
+      setIsTypingExactTone(result.isExactToneMatch);
+      setIsTypingSubmitted(true);
+      setIsFlipped(true);
+
+      // Confetti celebration
+      confetti({
+        particleCount: 70,
+        spread: 60,
+        origin: { y: 0.65 },
+        colors: ['#4f46e5', '#10b981', '#f59e0b', '#b91c1c'],
+      });
+
+      // Play native pronunciation
+      handlePlayAudio(currentCard.hanzi);
+
+      // Auto record SM-2 review rating (4: Rất dễ nếu chuẩn cả dấu, 3: Tốt nếu không dấu)
+      const rating = result.isExactToneMatch ? 4 : 3;
+      onRecordReview(currentCard, rating, 'pinyin_typing');
+
+      // Auto advance countdown (1.2s)
+      setAutoAdvanceCountdown(1);
+      autoAdvanceTimerRef.current = setTimeout(() => {
+        setAutoAdvanceCountdown(null);
+        advanceToNextCard();
+      }, 1200);
+    } else {
+      setIsTypingShake(true);
+      setTimeout(() => setIsTypingShake(false), 450);
+      setIsTypingSubmitted(true);
+    }
+  };
+
+  // Select IME Hanzi Candidate
+  const handleSelectImeCandidate = (candidate: ImeCandidate) => {
+    if (!currentCard || autoAdvanceCountdown !== null || isTypingCorrect) return;
+    if (candidate.isCorrect) {
+      setTypingInput(currentCard.pinyin);
+      setIsTypingCorrect(true);
+      setIsTypingExactTone(true);
+      setIsTypingSubmitted(true);
+      setIsFlipped(true);
+
+      confetti({
+        particleCount: 70,
+        spread: 60,
+        origin: { y: 0.65 },
+        colors: ['#10b981', '#3b82f6', '#f59e0b'],
+      });
+
+      handlePlayAudio(currentCard.hanzi);
+      onRecordReview(currentCard, 4, 'pinyin_typing');
+
+      setAutoAdvanceCountdown(1);
+      autoAdvanceTimerRef.current = setTimeout(() => {
+        setAutoAdvanceCountdown(null);
+        advanceToNextCard();
+      }, 1200);
+    } else {
+      setIsTypingShake(true);
+      setTimeout(() => setIsTypingShake(false), 450);
+    }
+  };
+
+  // Insert Mobile Tone Character into input
+  const handleInsertToneChar = (char: string) => {
+    setTypingInput((prev) => prev + char);
+    if (typingInputRef.current) {
+      typingInputRef.current.focus();
+    }
+  };
+
+  // Reveal typing answer
+  const handleRevealTypingAnswer = () => {
+    if (!currentCard) return;
+    setIsTypingSubmitted(true);
+    setIsFlipped(true);
+    handlePlayAudio(currentCard.hanzi);
   };
 
   // Helper to convert Blob to Base64
@@ -659,11 +841,33 @@ export const StudySession: React.FC<StudySessionProps> = ({
   // Keyboard navigation shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        if (e.target === typingInputRef.current) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleCheckPinyin();
+          }
+        }
+        return;
+      }
+
+      // If activeSheet is 'typing' and card not yet correct, 1-4 can select IME candidate
+      if (activeSheet === 'typing' && !isTypingCorrect && !isFlipped && imeCandidates.length > 0) {
+        const num = parseInt(e.key, 10);
+        if (num >= 1 && num <= imeCandidates.length) {
+          e.preventDefault();
+          handleSelectImeCandidate(imeCandidates[num - 1]);
+          return;
+        }
+      }
 
       if (e.code === 'Space') {
         e.preventDefault();
-        handleFlipCard();
+        if (activeSheet === 'typing' && !isTypingCorrect) {
+          handleCheckPinyin();
+        } else {
+          handleFlipCard();
+        }
       } else if (e.key === '1') {
         handleRate(1);
       } else if (e.key === '2') {
@@ -679,7 +883,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, isFlipped, currentCard, studyQueue, activeSheet]);
+  }, [currentIndex, isFlipped, currentCard, studyQueue, activeSheet, isTypingCorrect, imeCandidates, typingInput]);
 
   // Restart completed session
   const handleRestart = () => {
@@ -831,6 +1035,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
               className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
             >
               <option value="vietnamese_to_writing">✍️ Nhìn Nghĩa TV → Viết Hán Tự</option>
+              <option value="pinyin_to_hanzi">⌨️ Gõ Pinyin → Chữ Hán (Luyện gõ bàn phím)</option>
               <option value="audio_to_writing">🎧 Nghe Âm Đọc → Viết Hán Tự (Ẩn nghĩa)</option>
               <option value="hanzi_to_meaning">🗣️ Nhớ Nghĩa & Đọc (Hán → Nghĩa)</option>
               <option value="random">🔀 Toàn Diện (Ngẫu Nhiên Luân Phiên)</option>
@@ -997,7 +1202,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 <span className="font-mono text-stone-600">{studyQueue.length}</span>
               </div>
 
-              {/* 2 Sheets Toggle Tabs */}
+              {/* 3 Sheets Toggle Tabs */}
               <div className="flex items-center p-1 bg-stone-100 rounded-2xl border border-stone-200/80">
                 <button
                   type="button"
@@ -1022,7 +1227,20 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   }`}
                 >
                   <Mic className="w-3.5 h-3.5 text-red-700" />
-                  <span>🗣️ Sheet 2: Luyện Đọc & Phát Âm</span>
+                  <span>🗣️ Sheet 2: Luyện Đọc</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveSheet('typing')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    activeSheet === 'typing'
+                      ? 'bg-white text-stone-900 shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <Keyboard className="w-3.5 h-3.5 text-indigo-700" />
+                  <span>⌨️ Sheet 3: Luyện Gõ</span>
                 </button>
               </div>
 
@@ -1033,6 +1251,8 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   <span>
                     Mục tiêu: {currentEffectiveMode === 'vietnamese_to_writing'
                       ? '✍️ Nhìn nghĩa TV → Viết'
+                      : currentEffectiveMode === 'pinyin_to_hanzi'
+                      ? '⌨️ Gõ Pinyin → Chữ Hán'
                       : currentEffectiveMode === 'hanzi_to_meaning'
                       ? '🗣️ Nhớ nghĩa & Luyện Đọc'
                       : '🎧 Nghe âm → Viết (Ẩn nghĩa)'}
@@ -1177,13 +1397,29 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-1 shadow-2xs animate-in fade-in">
+                  <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-2.5 shadow-2xs animate-in fade-in">
                     <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
                       Nghĩa Tiếng Việt (Hãy nhớ và viết chữ Hán tương ứng)
                     </span>
                     <h3 className="text-2xl sm:text-3xl font-bold text-stone-900 font-vietnamese">
                       {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
                     </h3>
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={handleGenerateClueForCurrentCard}
+                        disabled={isGeneratingClue}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-semibold transition-all shadow-2xs hover:scale-102 cursor-pointer active:scale-95 disabled:opacity-60"
+                        title="Tự tạo mô tả đặc điểm danh từ / câu đố suy luận bằng AI cho từ này"
+                      >
+                        {isGeneratingClue ? (
+                          <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        )}
+                        <span>{isGeneratingClue ? 'Đang tạo mô tả...' : '✨ Tạo mô tả danh từ / gợi ý ngữ cảnh bằng AI'}</span>
+                      </button>
+                    </div>
                   </div>
                 )
               )}
@@ -1697,21 +1933,50 @@ export const StudySession: React.FC<StudySessionProps> = ({
               </div>
 
               {/* REQUIREMENT: Ở Sheet Luyện Đọc, Nghĩa Tiếng Việt ẨN MẶC ĐỊNH, chỉ hiện khi ấn xem */}
-              <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-2">
+              <div className="p-4 bg-[#fbf9f5] rounded-2xl border border-stone-200/90 text-center space-y-3">
+                {currentCard.contextClue && (
+                  <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 space-y-1.5 animate-in fade-in">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-full">
+                      🧩 Gợi ý ngữ cảnh / Câu đố:
+                    </span>
+                    <p className="text-xs sm:text-sm font-medium text-stone-800 italic font-vietnamese">
+                      "{currentCard.contextClue}"
+                    </p>
+                  </div>
+                )}
+
                 <span className="text-[11px] font-semibold text-stone-400 uppercase tracking-wider block">
                   Nghĩa Tiếng Việt
                 </span>
 
                 {!showReadingMeaning ? (
-                  <div className="py-1">
+                  <div className="py-1 space-y-2">
                     <button
                       type="button"
                       onClick={() => setShowReadingMeaning(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all shadow-2xs hover:scale-102"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all shadow-2xs hover:scale-102 cursor-pointer"
                     >
                       <Lightbulb className="w-4 h-4 text-amber-700" />
                       <span>💡 Nhấn để xem Nghĩa Tiếng Việt (Kiểm tra trí nhớ)</span>
                     </button>
+
+                    {!currentCard.contextClue && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={handleGenerateClueForCurrentCard}
+                          disabled={isGeneratingClue}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold text-amber-800 bg-white hover:bg-amber-50 border border-amber-200 rounded-xl transition-all cursor-pointer shadow-2xs"
+                        >
+                          {isGeneratingClue ? (
+                            <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3 text-amber-600" />
+                          )}
+                          <span>{isGeneratingClue ? 'Đang tạo...' : '✨ Tạo gợi ý ngữ cảnh AI'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2 animate-in fade-in">
@@ -1721,7 +1986,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowReadingMeaning(false)}
-                      className="text-[11px] text-stone-400 hover:text-stone-700 underline font-medium"
+                      className="text-[11px] text-stone-400 hover:text-stone-700 underline font-medium cursor-pointer"
                     >
                       Ẩn nghĩa
                     </button>
@@ -1749,8 +2014,393 @@ export const StudySession: React.FC<StudySessionProps> = ({
               </div>
             </div>
           )}
+
+          {/* =========================================================================
+              SHEET 3: LUYỆN GÕ PINYIN (Pinyin Typing & IME Simulator)
+             ========================================================================= */}
+          {activeSheet === 'typing' && (
+            <div className="space-y-4 animate-in fade-in">
+              {/* PROMPT BOX: Nghĩa Tiếng Việt & Gợi ý ngữ cảnh & Nghe âm */}
+              <div className="p-4 sm:p-5 bg-gradient-to-b from-indigo-50/60 to-white rounded-2xl border border-indigo-100/90 text-center space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-indigo-900 bg-indigo-100/80 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                    ⌨️ Hãy gõ Pinyin của từ này:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handlePlayAudio(currentCard.hanzi)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                      isPlayingStandardAudio
+                        ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-300'
+                        : 'bg-white text-indigo-900 border border-indigo-200 hover:bg-indigo-50 shadow-2xs'
+                    }`}
+                    title="Nghe phát âm chuẩn"
+                  >
+                    <Volume2 className={`w-3.5 h-3.5 ${isPlayingStandardAudio ? 'animate-bounce' : ''}`} />
+                    <span className="hidden sm:inline">Phát âm</span>
+                  </button>
+                </div>
+
+                {/* Main Meaning */}
+                <div className="space-y-1">
+                  <h3 className="text-2xl sm:text-3xl font-extrabold text-stone-900 font-vietnamese tracking-tight">
+                    {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                  </h3>
+                  <div className="flex items-center justify-center flex-wrap gap-2 text-xs text-stone-500 font-medium pt-0.5">
+                    <span>
+                      Mục tiêu: <strong className="text-indigo-800">{currentCard.hanzi.length} chữ Hán</strong>
+                    </span>
+                    {showPinyinHint && (
+                      <span className="font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md font-bold text-xs border border-indigo-200">
+                        Gợi ý: {currentCard.pinyin.split(' ').map((w) => (w[0] || '') + '...').join(' ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Context Clue if exists */}
+                {currentCard.contextClue && (
+                  <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 space-y-1 text-left sm:text-center">
+                    <span className="text-[11px] font-bold text-amber-900 block">
+                      🧩 Gợi ý ngữ cảnh / Câu đố:
+                    </span>
+                    <p className="text-xs sm:text-sm font-medium text-stone-800 italic font-vietnamese">
+                      "{currentCard.contextClue}"
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* INPUT SECTION & IME CANDIDATES */}
+              <div
+                className={`p-4 sm:p-5 bg-white rounded-2xl border-2 transition-all space-y-4 shadow-sm ${
+                  isTypingCorrect
+                    ? 'border-emerald-500 bg-emerald-50/30'
+                    : isTypingShake
+                    ? 'border-red-500 animate-shake bg-red-50/20'
+                    : 'border-stone-200 focus-within:border-indigo-600 focus-within:ring-4 focus-within:ring-indigo-100'
+                }`}
+              >
+                {/* Input container */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-stone-500">
+                    <label htmlFor="pinyin-typing-input" className="font-semibold text-stone-700">
+                      Nhập Pinyin (gõ không dấu, có số hoặc có dấu):
+                    </label>
+                    <span className="text-[11px] text-stone-400 hidden sm:inline">Nhấn Enter để kiểm tra</span>
+                  </div>
+
+                  <div className="relative flex items-center">
+                    <input
+                      id="pinyin-typing-input"
+                      ref={typingInputRef}
+                      type="text"
+                      value={typingInput}
+                      onChange={(e) => {
+                        setTypingInput(e.target.value);
+                        setIsTypingSubmitted(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCheckPinyin();
+                        }
+                      }}
+                      placeholder="Ví dụ: nihao hoặc ni3hao3..."
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      inputMode="text"
+                      disabled={isTypingCorrect}
+                      className={`w-full py-3 px-4 pr-24 rounded-xl text-base sm:text-lg font-mono font-bold tracking-wider transition-all focus:outline-none ${
+                        isTypingCorrect
+                          ? 'bg-emerald-100/60 text-emerald-900 border border-emerald-300'
+                          : 'bg-stone-50 text-stone-900 border border-stone-200 focus:bg-white'
+                      }`}
+                    />
+
+                    <div className="absolute right-2 flex items-center gap-1.5">
+                      {typingInput && !isTypingCorrect && (
+                        <button
+                          type="button"
+                          onClick={() => setTypingInput('')}
+                          className="p-1 text-stone-400 hover:text-stone-600 rounded-lg cursor-pointer"
+                          title="Xóa trắng"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCheckPinyin()}
+                        disabled={!typingInput.trim() || isTypingCorrect}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                          isTypingCorrect
+                            ? 'bg-emerald-600 text-white cursor-default'
+                            : typingInput.trim()
+                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs active:scale-95 cursor-pointer'
+                            : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                        }`}
+                      >
+                        {isTypingCorrect ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Đúng</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Gửi</span>
+                            <CornerDownLeft className="w-3.5 h-3.5" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isTypingSubmitted && !isTypingCorrect && (
+                    <p className="text-xs text-red-600 font-medium animate-in fade-in flex items-center gap-1 pt-0.5">
+                      <span>Pinyin chưa chính xác. Bạn có thể thử lại, bấm chữ cái gợi ý hoặc xem đáp án bên dưới!</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* IME CANDIDATE SELECTION BAR (Mô phỏng bộ gõ Sogou / Gboard / Apple) */}
+                <div className="space-y-1.5 pt-1 border-t border-stone-100">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-stone-500">
+                    <span className="flex items-center gap-1 text-indigo-900">
+                      <Keyboard className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Thanh gợi ý bộ gõ IME (chọn chữ Hán tương ứng):</span>
+                    </span>
+                    <span className="text-stone-400 hidden sm:inline">Bấm phím 1-4 trên bàn phím</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {imeCandidates.map((cand, idx) => (
+                      <button
+                        key={`${cand.hanzi}-${idx}`}
+                        type="button"
+                        onClick={() => handleSelectImeCandidate(cand)}
+                        disabled={isTypingCorrect}
+                        className={`p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer active:scale-95 shadow-2xs ${
+                          isTypingCorrect && cand.isCorrect
+                            ? 'bg-emerald-100 border-emerald-400 text-emerald-950 ring-2 ring-emerald-300 font-bold scale-102'
+                            : 'bg-stone-50 hover:bg-indigo-50 border-stone-200 hover:border-indigo-300 text-stone-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs font-bold text-stone-500 bg-stone-200/90 w-4 h-4 rounded-full flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <span className="font-hanzi font-bold text-xl text-stone-900">{cand.hanzi}</span>
+                        </div>
+                        {cand.pinyin && (
+                          <span className="text-[10px] font-mono text-stone-400">{cand.pinyin}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* MOBILE QUICK TONE ACCENT BAR */}
+                <div className="pt-1 border-t border-stone-100">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setShowMobileTones((prev) => !prev)}
+                      className="text-[11px] font-semibold text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>
+                        {showMobileTones ? '▼ Thu gọn phím thanh điệu' : '▶ Bàn phím ký tự thanh điệu (ā, á, ǎ, à...)'}
+                      </span>
+                    </button>
+                    <span className="text-[10px] text-stone-400">Tiện lợi cho điện thoại</span>
+                  </div>
+
+                  {showMobileTones && (
+                    <div className="mt-2 p-2.5 bg-stone-50 rounded-xl border border-stone-200/80 space-y-1.5 animate-in fade-in">
+                      {MOBILE_TONE_BUTTONS.map((group) => (
+                        <div key={group.tone} className="flex items-center gap-1.5">
+                          <span className="w-14 text-[10px] font-bold text-stone-500 shrink-0">
+                            Thanh {group.tone}:
+                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {group.chars.map((char) => (
+                              <button
+                                key={char}
+                                type="button"
+                                onClick={() => handleInsertToneChar(char)}
+                                className="w-7 h-7 bg-white hover:bg-indigo-100 border border-stone-200 hover:border-indigo-300 text-stone-900 font-mono font-bold text-xs rounded-lg transition-all active:scale-90 cursor-pointer shadow-2xs"
+                              >
+                                {char}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* RESULT & REVEALED DETAILS IF CORRECT OR FLIPPED */}
+                {(isTypingCorrect || isFlipped) && (
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        <span className="text-xs font-bold text-emerald-900">
+                          {isTypingCorrect
+                            ? isTypingExactTone
+                              ? 'Xuất sắc! Phát âm và thanh điệu hoàn toàn chuẩn xác.'
+                              : 'Chính xác! Đã khớp chữ Hán mục tiêu.'
+                            : 'Đáp án chuẩn:'}
+                        </span>
+                      </div>
+                      {autoAdvanceCountdown !== null && (
+                        <span className="text-xs font-bold text-emerald-700 font-mono animate-pulse">
+                          Tiếp theo trong {autoAdvanceCountdown}s...
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-center space-y-1">
+                      <h2 className="text-4xl font-extrabold font-hanzi text-stone-900 tracking-wider">
+                        {currentCard.hanzi}
+                      </h2>
+                      <p className="text-base font-bold font-mono text-emerald-800 tracking-widest">
+                        {currentCard.pinyin}
+                      </p>
+                    </div>
+
+                    {currentCard.exampleSentence && (
+                      <div className="p-3 bg-white/80 rounded-xl border border-emerald-100 text-left text-xs space-y-1">
+                        <div className="flex items-center justify-between text-stone-500 font-semibold">
+                          <span>Câu ví dụ:</span>
+                          <button
+                            type="button"
+                            onClick={() => handlePlayAudio(currentCard.exampleSentence)}
+                            className="p-1 hover:text-emerald-700 cursor-pointer"
+                          >
+                            <Volume2 className="w-3.5 h-3.5 text-emerald-700" />
+                          </button>
+                        </div>
+                        <p className="font-hanzi font-bold text-stone-900 text-sm">
+                          {currentCard.exampleSentence}
+                        </p>
+                        {currentCard.examplePinyin && (
+                          <p className="text-stone-500 font-mono">{currentCard.examplePinyin}</p>
+                        )}
+                        {currentCard.exampleMeaning && (
+                          <p className="text-stone-600 italic">{currentCard.exampleMeaning}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ACTION TOOLBAR: Hint, Reveal Answer, Next Card */}
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-stone-100">
+                  <div className="flex items-center gap-2">
+                    {!isTypingCorrect && !isFlipped && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setShowPinyinHint((prev) => !prev)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors cursor-pointer"
+                        >
+                          <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
+                          <span>{showPinyinHint ? 'Ẩn gợi ý' : 'Gợi ý chữ cái'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleRevealTypingAnswer}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Xem đáp án</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Advance immediately button */}
+                  {(isTypingCorrect || isFlipped) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+                        setAutoAdvanceCountdown(null);
+                        advanceToNextCard();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-stone-900 hover:bg-stone-800 transition-all shadow-sm active:scale-95 cursor-pointer ml-auto"
+                    >
+                      <span>Từ tiếp theo</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* SM-2 RATING BAR FOR TYPING SHEET (If user clicked 'Xem đáp án') */}
+              {isFlipped && !isTypingCorrect && (
+                <div className="pt-2 border-t border-stone-100 space-y-2 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs text-stone-500 font-medium">
+                    <span>Đánh giá mức độ ghi nhớ sau khi xem đáp án:</span>
+                    <span className="text-[11px] text-stone-400">Phím tắt: 1, 2, 3, 4</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRate(1)}
+                      className="py-2.5 px-3 rounded-2xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-xs font-bold transition-all text-center cursor-pointer shadow-2xs hover:scale-102"
+                    >
+                      <div>Chưa nhớ (Lại)</div>
+                      <div className="text-[10px] text-red-600 font-normal mt-0.5">1 ngày (Ôn lại)</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRate(2)}
+                      className="py-2.5 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 text-xs font-bold transition-all text-center cursor-pointer shadow-2xs hover:scale-102"
+                    >
+                      <div>Khó nhớ</div>
+                      <div className="text-[10px] text-orange-600 font-normal mt-0.5">
+                        {formatInterval(Math.max(1, Math.round((currentCard.interval || 1) * 1.2)))}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRate(3)}
+                      className="py-2.5 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition-all text-center cursor-pointer shadow-2xs hover:scale-102"
+                    >
+                      <div>Tốt (Đã nhớ)</div>
+                      <div className="text-[10px] text-emerald-600 font-normal mt-0.5">
+                        {formatInterval(
+                          currentCard.repetitions === 0
+                            ? 1
+                            : Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5))
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRate(4)}
+                      className="py-2.5 px-3 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-bold transition-all text-center cursor-pointer shadow-2xs hover:scale-102"
+                    >
+                      <div>Rất dễ</div>
+                      <div className="text-[10px] text-blue-600 font-normal mt-0.5">
+                        {formatInterval(
+                          Math.round((currentCard.interval || 1) * (currentCard.easeFactor || 2.5) * 1.3)
+                        )}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 };
+

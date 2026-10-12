@@ -1,6 +1,6 @@
 export type CardStatus = 'new' | 'learning' | 'review' | 'mastered';
 
-export type StudyMode = 'vietnamese_to_writing' | 'audio_to_writing' | 'hanzi_to_meaning' | 'random';
+export type StudyMode = 'vietnamese_to_writing' | 'audio_to_writing' | 'hanzi_to_meaning' | 'pinyin_to_hanzi' | 'random';
 
 export interface Card {
   id: string;

@@ -7,6 +7,7 @@ import {
   evaluatePronunciation,
   checkHandwritingMatch,
   generateSmartVocab,
+  generateContextClue,
 } from './api/gemini';
 import { getSystemDecksAndCards, saveSystemVocab, resetSystemVocabToDefault } from './api/systemDecks';
 
@@ -148,6 +149,21 @@ app.post('/api/generate-vocab-smart', async (req, res) => {
   } catch (err: any) {
     console.error('Smart Vocab Generation Error:', err);
     res.status(500).json({ error: err.message || 'Lỗi khi tạo từ vựng AI' });
+  }
+});
+
+// Generate Context Clue / Noun Description for a word that does not have one
+app.post('/api/generate-context-clue', async (req, res) => {
+  try {
+    const { hanzi, meaning, pinyin } = req.body;
+    if (!hanzi && !meaning) {
+      return res.status(400).json({ error: 'Cần có chữ Hán hoặc nghĩa tiếng Việt' });
+    }
+    const contextClue = await generateContextClue(hanzi || '', meaning || '', pinyin || '');
+    res.json({ success: true, contextClue });
+  } catch (err: any) {
+    console.error('Context Clue Generation Error:', err);
+    res.status(500).json({ error: err.message || 'Lỗi khi tạo gợi ý ngữ cảnh' });
   }
 });
 

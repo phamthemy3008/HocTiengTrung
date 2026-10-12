@@ -70,6 +70,11 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSuccessMessage, setAiSuccessMessage] = useState<string | null>(null);
 
+  // Per-card and Bulk Context Clue Generation states
+  const [generatingClueCardId, setGeneratingClueCardId] = useState<string | null>(null);
+  const [isBulkGenerating, setIsBulkGenerating] = useState<boolean>(false);
+  const [bulkProgress, setBulkProgress] = useState<number>(0);
+
   // State for Anki Import modal
   const [isAnkiModalOpen, setIsAnkiModalOpen] = useState<boolean>(false);
   const [ankiContent, setAnkiContent] = useState<string>('');
@@ -275,6 +280,103 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
     } finally {
       setIsGeneratingAi(false);
     }
+  };
+
+  // Generate Context Clue / Noun Description only for current modal form
+  const handleGenerateClueOnly = async () => {
+    if (!cardHanzi.trim() && !cardMeaning.trim()) {
+      setAiError('Vui lòng nhập Chữ Hán hoặc Nghĩa Tiếng Việt trước khi tạo mô tả.');
+      return;
+    }
+    setIsGeneratingAi(true);
+    setAiError(null);
+    try {
+      const res = await fetch('/api/generate-context-clue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hanzi: cardHanzi.trim(),
+          meaning: cardMeaning.trim(),
+          pinyin: cardPinyin.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.contextClue) {
+        throw new Error(data.error || 'Không thể tạo mô tả bằng AI.');
+      }
+      setCardContextClue(data.contextClue);
+      setAiSuccessMessage('✓ Đã tạo mô tả danh từ / gợi ý ngữ cảnh!');
+      setTimeout(() => setAiSuccessMessage(null), 3500);
+    } catch (err: any) {
+      setAiError(err.message || 'Lỗi khi tạo mô tả bằng AI.');
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  };
+
+  // Generate Context Clue for a single card in table
+  const handleGenerateClueForCard = async (card: Card) => {
+    setGeneratingClueCardId(card.id);
+    try {
+      const res = await fetch('/api/generate-context-clue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hanzi: card.hanzi,
+          meaning: card.meaning,
+          pinyin: card.pinyin,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.contextClue) {
+        await onSaveCard({
+          ...card,
+          contextClue: data.contextClue,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error('Error generating clue for card:', err);
+    } finally {
+      setGeneratingClueCardId(null);
+    }
+  };
+
+  // Bulk generate context clues for all cards missing clues in filtered view
+  const handleBulkGenerateClues = async () => {
+    const missing = filteredCards.filter((c) => !c.contextClue);
+    if (missing.length === 0 || isBulkGenerating) return;
+
+    setIsBulkGenerating(true);
+    setBulkProgress(0);
+
+    for (let i = 0; i < missing.length; i++) {
+      const card = missing[i];
+      try {
+        const res = await fetch('/api/generate-context-clue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hanzi: card.hanzi,
+            meaning: card.meaning,
+            pinyin: card.pinyin,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.contextClue) {
+          await onSaveCard({
+            ...card,
+            contextClue: data.contextClue,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to generate clue for card', card.hanzi, err);
+      }
+      setBulkProgress(i + 1);
+    }
+
+    setIsBulkGenerating(false);
   };
 
   const handleSaveCardSubmit = async (e: React.FormEvent) => {
@@ -629,6 +731,28 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
             </div>
           )}
 
+          {/* Bulk generate clues button if any filtered cards are missing clues */}
+          {filteredCards.some((c) => !c.contextClue) && (
+            <button
+              type="button"
+              onClick={handleBulkGenerateClues}
+              disabled={isBulkGenerating}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg shadow-2xs transition-all cursor-pointer disabled:opacity-60"
+              title="Dùng AI tự động tạo mô tả ngữ cảnh / câu đố cho tất cả các thẻ chưa có trong bộ này"
+            >
+              {isBulkGenerating ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              )}
+              <span>
+                {isBulkGenerating
+                  ? `Đang tạo mô tả (${bulkProgress}/${filteredCards.filter((c) => !c.contextClue).length})...`
+                  : `Tạo mô tả AI cho ${filteredCards.filter((c) => !c.contextClue).length} từ`}
+              </span>
+            </button>
+          )}
+
           {/* Export button */}
           <button
             type="button"
@@ -687,13 +811,30 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                     {/* Meaning + Tags */}
                     <td className="py-3 px-4 font-medium text-stone-800 font-vietnamese">
                       <div>{card.meaning ? card.meaning.normalize('NFC') : ''}</div>
-                      {card.contextClue && (
+                      {card.contextClue ? (
                         <div
                           className="text-[11px] text-amber-900 bg-amber-50/90 rounded px-1.5 py-0.5 mt-1 border border-amber-200/70 inline-flex items-center gap-1 font-normal max-w-xs truncate"
                           title={card.contextClue}
                         >
                           <span>🧩</span>
                           <span className="italic truncate">{card.contextClue}</span>
+                        </div>
+                      ) : (
+                        <div className="mt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateClueForCard(card)}
+                            disabled={generatingClueCardId === card.id}
+                            className="text-[10px] text-amber-800 bg-amber-50 hover:bg-amber-100 rounded px-1.5 py-0.5 border border-amber-200 inline-flex items-center gap-1 font-semibold cursor-pointer active:scale-95 disabled:opacity-60 transition-colors shadow-2xs"
+                            title="Tạo mô tả danh từ / gợi ý ngữ cảnh bằng AI cho từ này"
+                          >
+                            {generatingClueCardId === card.id ? (
+                              <Loader2 className="w-2.5 h-2.5 animate-spin text-amber-700" />
+                            ) : (
+                              <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                            )}
+                            <span>{generatingClueCardId === card.id ? 'Đang tạo...' : '+ Thêm mô tả AI'}</span>
+                          </button>
                         </div>
                       )}
                       {card.tags && card.tags.length > 0 && (
@@ -905,6 +1046,29 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                   </button>
                 </div>
 
+                {/* 2 Chế độ thêm từ vựng tự động thông minh theo yêu cầu */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
+                  <span className="text-stone-500 font-medium text-[10px]">Chọn chế độ:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleAiGenerateSmart(aiSmartInput, 'vi')}
+                    disabled={isGeneratingAi || !aiSmartInput.trim()}
+                    className="px-2 py-0.5 bg-white hover:bg-amber-50 border border-stone-200 hover:border-amber-400 rounded-md text-stone-700 font-semibold cursor-pointer active:scale-95 disabled:opacity-40 transition-colors shadow-2xs text-[10px]"
+                    title="User nhập Tiếng Việt → AI tự suy ra Tiếng Trung và tạo Gợi ý ngữ cảnh / Mô tả"
+                  >
+                    🇻🇳 Tiếng Việt → Tiếng Trung & Gợi ý
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAiGenerateSmart(aiSmartInput, 'zh')}
+                    disabled={isGeneratingAi || !aiSmartInput.trim()}
+                    className="px-2 py-0.5 bg-white hover:bg-amber-50 border border-stone-200 hover:border-amber-400 rounded-md text-stone-700 font-semibold cursor-pointer active:scale-95 disabled:opacity-40 transition-colors shadow-2xs text-[10px]"
+                    title="User nhập Tiếng Trung → AI tự suy ra Tiếng Việt và tạo Gợi ý ngữ cảnh / Mô tả"
+                  >
+                    🇨🇳 Tiếng Trung → Tiếng Việt & Gợi ý
+                  </button>
+                </div>
+
                 {aiError && <p className="text-[11px] text-red-600 font-medium">⚠️ {aiError}</p>}
                 {aiSuccessMessage && <p className="text-[11px] text-emerald-700 font-bold">{aiSuccessMessage}</p>}
               </div>
@@ -984,7 +1148,18 @@ export const DeckManager: React.FC<DeckManagerProps> = ({
                   <label className="block font-semibold text-stone-700">
                     🧩 Gợi ý ngữ cảnh / Câu đố (Context Clue):
                   </label>
-                  <span className="text-[11px] text-stone-400">Không bắt buộc</span>
+                  {(cardHanzi.trim() || cardMeaning.trim()) && (
+                    <button
+                      type="button"
+                      disabled={isGeneratingAi}
+                      onClick={handleGenerateClueOnly}
+                      className="text-[10px] text-amber-800 hover:text-amber-950 font-bold inline-flex items-center gap-1 hover:underline cursor-pointer bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300 shadow-2xs"
+                      title="Dùng AI để tạo câu đố / mô tả đặc điểm danh từ này để suy luận nghĩa"
+                    >
+                      <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                      <span>AI Tạo Mô Tả Danh Từ</span>
+                    </button>
+                  )}
                 </div>
                 <textarea
                   rows={2}

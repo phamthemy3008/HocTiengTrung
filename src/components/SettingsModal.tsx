@@ -185,6 +185,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 <option value="random">Ngẫu nhiên xen kẽ</option>
                 <option value="vietnamese_to_writing">Ưu tiên tập viết Hán tự</option>
+                <option value="pinyin_to_hanzi">Ưu tiên luyện gõ Pinyin</option>
                 <option value="hanzi_to_meaning">Ưu tiên đọc & nhớ nghĩa</option>
               </select>
             </div>

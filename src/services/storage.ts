@@ -28,7 +28,7 @@ export interface AppSettings {
   reminderEnabled: boolean;
   soundEnabled: boolean;
   showGhostOutline: boolean;
-  defaultStudyMode: 'vietnamese_to_writing' | 'hanzi_to_meaning' | 'random';
+  defaultStudyMode: 'vietnamese_to_writing' | 'hanzi_to_meaning' | 'pinyin_to_hanzi' | 'random';
 }
 
 const DEFAULT_SETTINGS: AppSettings = {

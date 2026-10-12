@@ -8,6 +8,7 @@ import {
   evaluatePronunciation,
   checkHandwritingMatch,
   generateSmartVocab,
+  generateContextClue,
 } from './api/gemini';
 import { getSystemDecksAndCards, importSystemCards } from './api/systemDecks';
 
@@ -81,6 +82,29 @@ function apiServerPlugin(): Plugin {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: err.message || 'Lỗi tạo từ vựng AI' }));
+          }
+          return;
+        }
+
+        if (req.url === '/api/generate-context-clue' && req.method === 'POST') {
+          try {
+            const body = await readBody();
+            const { hanzi, meaning, pinyin } = body;
+            if (!hanzi && !meaning) {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Cần có chữ Hán hoặc nghĩa tiếng Việt' }));
+              return;
+            }
+            const contextClue = await generateContextClue(hanzi || '', meaning || '', pinyin || '');
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: true, contextClue }));
+          } catch (err: any) {
+            console.error('Vite API Generate Context Clue error:', err);
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message || 'Lỗi tạo gợi ý ngữ cảnh' }));
           }
           return;
         }

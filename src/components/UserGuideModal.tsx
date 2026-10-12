@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Github,
   Globe,
+  Keyboard,
 } from 'lucide-react';
 
 interface UserGuideModalProps {
@@ -24,7 +25,7 @@ interface UserGuideModalProps {
 }
 
 export const UserGuideModal: React.FC<UserGuideModalProps> = ({ isOpen, onClose }) => {
-  const [activeSection, setActiveSection] = useState<'overview' | 'writing' | 'reading' | 'srs' | 'tools'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'writing' | 'reading' | 'typing' | 'srs' | 'tools'>('overview');
 
   if (!isOpen) return null;
 
@@ -99,6 +100,19 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ isOpen, onClose 
 
           <button
             type="button"
+            onClick={() => setActiveSection('typing')}
+            className={`px-3 py-1.5 rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
+              activeSection === 'typing'
+                ? 'bg-red-700 text-white shadow-2xs'
+                : 'text-stone-600 hover:bg-stone-200/60'
+            }`}
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+            <span>4. Luyện Gõ Pinyin</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveSection('srs')}
             className={`px-3 py-1.5 rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
               activeSection === 'srs'
@@ -107,7 +121,7 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ isOpen, onClose 
             }`}
           >
             <Brain className="w-3.5 h-3.5" />
-            <span>4. Thuật toán SM-2</span>
+            <span>5. Thuật toán SM-2</span>
           </button>
 
           <button
@@ -120,7 +134,7 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ isOpen, onClose 
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>5. Quản lý & OCR</span>
+            <span>6. Quản lý & OCR</span>
           </button>
         </div>
 
@@ -268,6 +282,52 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({ isOpen, onClose 
                     <strong className="text-stone-900 text-xs block">Nghe lại "Bản ghi của bạn" vs "Giọng bản ngữ"</strong>
                     <span className="text-[11px] text-stone-500">
                       Bấm nút <strong>"▶ Bản ghi của bạn"</strong> để nghe lại chính giọng đọc của mình, sau đó bấm nút <strong>"🔊 [Pinyin]"</strong> để so sánh với người bản xứ và sửa lại cho chuẩn.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'typing' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-4 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl space-y-2">
+                <h3 className="font-bold text-indigo-950 text-sm flex items-center gap-2">
+                  <Keyboard className="w-4 h-4 text-indigo-700" />
+                  <span>Chế Độ Luyện Gõ Pinyin & Mô Phỏng Bộ Gõ IME</span>
+                </h3>
+                <p className="text-xs text-stone-600">
+                  Rèn luyện phản xạ gõ bàn phím thực tế để phục vụ nhắn tin WeChat, gõ tài liệu trên điện thoại và máy tính.
+                </p>
+              </div>
+
+              <div className="space-y-2.5">
+                <div className="flex items-start gap-2.5 p-3 bg-white border border-stone-200 rounded-xl">
+                  <div className="w-6 h-6 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold text-xs shrink-0">1</div>
+                  <div>
+                    <strong className="text-stone-900 text-xs block">Gõ linh hoạt không dấu, có số hoặc có dấu</strong>
+                    <span className="text-[11px] text-stone-500">
+                      Hệ thống tự động hiểu cả 3 cách gõ: <code className="bg-stone-100 px-1 py-0.5 rounded text-indigo-800 font-mono">nihao</code>, <code className="bg-stone-100 px-1 py-0.5 rounded text-indigo-800 font-mono">ni3hao3</code> hoặc <code className="bg-stone-100 px-1 py-0.5 rounded text-indigo-800 font-mono">nǐ hǎo</code>.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5 p-3 bg-white border border-stone-200 rounded-xl">
+                  <div className="w-6 h-6 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold text-xs shrink-0">2</div>
+                  <div>
+                    <strong className="text-stone-900 text-xs block">Thanh ứng viên bộ gõ IME thực tế</strong>
+                    <span className="text-[11px] text-stone-500">
+                      Mô phỏng bộ gõ Sogou/Gboard/Apple. Bạn có thể bấm phím số <strong>1, 2, 3, 4</strong> trên máy tính hoặc chạm trực tiếp vào chữ Hán đúng trên điện thoại để kiểm tra nhận diện chữ Hán giữa các từ đồng âm.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5 p-3 bg-white border border-stone-200 rounded-xl">
+                  <div className="w-6 h-6 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold text-xs shrink-0">3</div>
+                  <div>
+                    <strong className="text-stone-900 text-xs block">Bàn phím ký tự thanh điệu cho Mobile</strong>
+                    <span className="text-[11px] text-stone-500">
+                      Nếu dùng điện thoại chưa cài bàn phím Trung Quốc, bạn chỉ cần bấm mở <em>"Bàn phím ký tự thanh điệu"</em> để chạm nhanh các ký tự có dấu như <code className="bg-stone-100 px-1 font-mono text-xs">ā, á, ǎ, à</code>.
                     </span>
                   </div>
                 </div>

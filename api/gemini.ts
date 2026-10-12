@@ -12,6 +12,35 @@ const getGeminiClient = () => {
   });
 };
 
+const PRIMARY_MODEL = 'gemini-3.8-flash';
+const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
+
+async function generateWithFallback(ai: GoogleGenAI, config: any) {
+  try {
+    return await ai.models.generateContent({
+      ...config,
+      model: PRIMARY_MODEL,
+    });
+  } catch (err: any) {
+    const isOverloaded =
+      err?.message?.includes('503') ||
+      err?.message?.includes('high demand') ||
+      err?.message?.includes('404') ||
+      err?.message?.includes('no longer available') ||
+      err?.status === 503 ||
+      err?.code === 503 ||
+      err?.status === 404;
+    if (isOverloaded) {
+      console.warn(`Primary model ${PRIMARY_MODEL} busy or unavailable, switching to fallback ${FALLBACK_MODEL}`);
+      return await ai.models.generateContent({
+        ...config,
+        model: FALLBACK_MODEL,
+      });
+    }
+    throw err;
+  }
+}
+
 /**
  * OCR trích xuất danh sách từ vựng tiếng Trung từ ảnh chụp camera / tài liệu
  */
@@ -384,8 +413,7 @@ Nhiệm vụ của bạn:
 Chỉ trả về JSON theo đúng Schema.
 `;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash',
+  const response = await generateWithFallback(ai, {
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -415,5 +443,53 @@ Chỉ trả về JSON theo đúng Schema.
 
   const jsonText = response.text?.trim() || '{}';
   return JSON.parse(jsonText);
+}
+
+/**
+ * Tự động tạo mô tả ngữ cảnh / câu đố suy luận cho từ vựng (danh từ, động từ...) khi thẻ chưa có gợi ý ngữ cảnh
+ */
+export async function generateContextClue(hanzi: string, meaning: string, pinyin?: string): Promise<string> {
+  const ai = getGeminiClient();
+
+  const prompt = `
+Bạn là chuyên gia sư phạm tiếng Trung và sáng tác câu đố ngôn ngữ Hán - Việt.
+Cho từ vựng sau:
+- Chữ Hán: "${hanzi}"
+- Pinyin: "${pinyin || ''}"
+- Nghĩa Tiếng Việt: "${meaning}"
+
+NHIỆM VỤ:
+Hãy tạo một đoạn mô tả ngữ cảnh / câu đố suy luận gợi mở sinh động (1-2 câu tiếng Việt) để học viên đọc vào có thể tự suy luận ra nghĩa hoặc đoán ra từ đó mà KHÔNG ĐƯỢC NÓI THẲNG TỪ ĐÓ RA.
+1. Nếu là DANH TỪ (đồ vật, sự vật, loài vật, địa điểm, nghề nghiệp, món ăn, hiện tượng...):
+   - Hãy miêu tả đặc điểm nhận dạng, hình dáng, công dụng, bối cảnh sử dụng hoặc một câu đố thú vị gợi ý về danh từ đó (Ví dụ cho 'táo': 'Loại quả tròn giòn ngọt, vỏ đỏ hoặc xanh, nổi tiếng với câu tục ngữ ăn mỗi ngày để không phải gặp bác sĩ.').
+2. Nếu là ĐỘNG TỪ hoặc TÍNH TỪ:
+   - Hãy miêu tả hành động, cảm xúc hoặc ngữ cảnh tình huống điển hình khi từ đó được dùng.
+3. Yêu cầu: Văn phong tiếng Việt tự nhiên, súc tích, kích thích tư duy chủ động (Active Recall).
+
+Chỉ trả về JSON Schema: {"contextClue": "Đoạn gợi ý ngữ cảnh / câu đố..."}
+`;
+
+  try {
+    const response = await generateWithFallback(ai, {
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            contextClue: { type: Type.STRING, description: 'Đoạn mô tả ngữ cảnh / câu đố suy luận nghĩa' },
+          },
+          required: ['contextClue'],
+        },
+      },
+    });
+
+    const jsonText = response.text?.trim() || '{}';
+    const parsed = JSON.parse(jsonText);
+    return parsed.contextClue || `Khái niệm gợi ý: ${meaning}`;
+  } catch (err) {
+    console.error('Error generating context clue:', err);
+    return `Ngữ cảnh liên quan đến: ${meaning}`;
+  }
 }
 
