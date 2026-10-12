@@ -68,10 +68,11 @@ export function cleanPinyinWithSpaces(text: string): string {
 
 /**
  * Kiểm tra xem dữ liệu người dùng gõ có khớp với Pinyin mục tiêu không
- * Hỗ trợ 3 hình thức:
+ * Hỗ trợ các trường hợp:
  * 1. Gõ có dấu chuẩn: "nǐ hǎo" === "nǐ hǎo"
  * 2. Gõ không dấu có cách hoặc dính liền: "ni hao" hoặc "nihao" khớp "nǐ hǎo"
  * 3. Gõ kèm số thanh điệu: "ni3hao3" hoặc "ni3 hao3" khớp "nǐ hǎo"
+ * 4. Hỗ trợ biến thể phân tách bằng dấu gạch chéo (/ hoặc , hoặc ;)
  */
 export function isPinyinMatch(
   userInput: string,
@@ -84,28 +85,56 @@ export function isPinyinMatch(
     return { isMatch: false, isExactToneMatch: false, cleanInput: '' };
   }
 
-  // 1. Kiểm tra khớp chính xác cả dấu thanh điệu
+  // Tách các biến thể nếu thẻ có nhiều cách đọc (ví dụ: "dū / dōu")
+  const targetVariants = rawTarget
+    .split(/[/,;]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
   const cleanInputExact = rawInput.replace(/\s+/g, ' ');
-  const cleanTargetExact = rawTarget.replace(/\s+/g, ' ');
-  const isExactToneMatch = cleanInputExact === cleanTargetExact;
-
-  // 2. Kiểm tra khớp theo dạng chữ cái (Fuzzy match)
   const userLettersOnly = cleanPinyinForStrictCompare(rawInput);
-  const targetLettersOnly = cleanPinyinForStrictCompare(rawTarget);
-
   const userWithSpaces = cleanPinyinWithSpaces(rawInput);
-  const targetWithSpaces = cleanPinyinWithSpaces(rawTarget);
 
-  // Cho phép khớp cả khi có dấu cách hoặc dính liền
-  const isLetterMatch =
-    userLettersOnly === targetLettersOnly ||
-    userWithSpaces === targetWithSpaces;
+  for (const variant of targetVariants) {
+    // 1. Khớp chính xác cả dấu
+    const cleanVariantExact = variant.replace(/\s+/g, ' ');
+    if (cleanInputExact === cleanVariantExact) {
+      return { isMatch: true, isExactToneMatch: true, cleanInput: userLettersOnly };
+    }
+
+    // 2. Khớp theo ký tự (không dấu hoặc có số)
+    const variantLettersOnly = cleanPinyinForStrictCompare(variant);
+    const variantWithSpaces = cleanPinyinWithSpaces(variant);
+
+    if (
+      userLettersOnly === variantLettersOnly ||
+      userWithSpaces === variantWithSpaces
+    ) {
+      return { isMatch: true, isExactToneMatch: false, cleanInput: userLettersOnly };
+    }
+  }
 
   return {
-    isMatch: isExactToneMatch || isLetterMatch,
-    isExactToneMatch,
+    isMatch: false,
+    isExactToneMatch: false,
     cleanInput: userLettersOnly,
   };
+}
+
+/**
+ * Tạo chuỗi gợi ý âm tiết đầu: "nǐ hǎo" -> "n... h..."
+ */
+export function formatPinyinInitialHint(pinyin: string): string {
+  if (!pinyin) return '';
+  return pinyin
+    .trim()
+    .split(/\s+/)
+    .map((word) => {
+      const cleanWord = removeToneMarks(word);
+      const firstChar = cleanWord[0] || word[0] || '';
+      return `${firstChar}...`;
+    })
+    .join(' ');
 }
 
 export interface ImeCandidate {

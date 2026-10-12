@@ -39,8 +39,7 @@ import { speechService } from '../services/speech';
 import { formatInterval, sortCardsForSM2Queue } from '../services/srs';
 import {
   isPinyinMatch,
-  generateImeCandidates,
-  ImeCandidate,
+  formatPinyinInitialHint,
   MOBILE_TONE_BUTTONS,
 } from '../services/pinyinHelper';
 
@@ -82,7 +81,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
   // Active Sheet inside the single unified study card:
   // 'writing': Sheet 1 - Tập viết chữ Hán (Hanzi Canvas)
   // 'reading': Sheet 2 - Luyện đọc & Phát âm AI (Speech Recognition & Evaluation)
-  // 'typing': Sheet 3 - Luyện gõ Pinyin (Pinyin Typing & IME Simulator)
+  // 'typing': Sheet 3 - Luyện gõ Pinyin (Nghe/Nhìn → Tự Gõ Pinyin)
   const [activeSheet, setActiveSheet] = useState<'writing' | 'reading' | 'typing'>('writing');
 
   // Pinyin typing states
@@ -93,6 +92,18 @@ export const StudySession: React.FC<StudySessionProps> = ({
   const [isTypingShake, setIsTypingShake] = useState<boolean>(false);
   const [showPinyinHint, setShowPinyinHint] = useState<boolean>(false);
   const [showMobileTones, setShowMobileTones] = useState<boolean>(false);
+  const [pinyinAudioSpeed, setPinyinAudioSpeed] = useState<number>(1.0);
+  const [showPinyinPromptClue, setShowPinyinPromptClue] = useState<boolean>(false);
+  // Pinyin prompt display mode: 'hanzi_only' | 'meaning_only' | 'alternate'
+  const [pinyinPromptMode, setPinyinPromptMode] = useState<'hanzi_only' | 'meaning_only' | 'alternate'>(() => {
+    try {
+      const saved = localStorage.getItem('pinyin_prompt_mode');
+      if (saved === 'meaning_only' || saved === 'alternate' || saved === 'hanzi_only') {
+        return saved;
+      }
+    } catch {}
+    return 'hanzi_only';
+  });
   const typingInputRef = useRef<HTMLInputElement | null>(null);
 
   // Selected Tags for filtering study session (multi-selection)
@@ -223,12 +234,20 @@ export const StudySession: React.FC<StudySessionProps> = ({
     if (studyMode !== 'random') return studyMode;
     const modes: Exclude<StudyMode, 'random'>[] = [
       'vietnamese_to_writing', // Card 0: Nhìn Nghĩa TV → Viết
-      'pinyin_to_hanzi',      // Card 1: Gõ Pinyin → Chữ Hán
+      'pinyin_to_hanzi',      // Card 1: Gõ Pinyin
       'hanzi_to_meaning',      // Card 2: Nhớ Nghĩa & Luyện Đọc
       'audio_to_writing',      // Card 3: Nghe Âm → Viết (Ẩn nghĩa)
     ];
     return modes[currentIndex % modes.length];
   }, [studyMode, currentIndex]);
+
+  // Effective prompt display for Pinyin typing ('hanzi_only' or 'meaning_only')
+  const currentEffectivePinyinPrompt = useMemo<'hanzi_only' | 'meaning_only'>(() => {
+    if (pinyinPromptMode === 'alternate') {
+      return currentIndex % 2 === 0 ? 'hanzi_only' : 'meaning_only';
+    }
+    return pinyinPromptMode;
+  }, [pinyinPromptMode, currentIndex]);
 
   // Set up card view state for a given card index
   const setupCardForIndex = useCallback((nextIdx: number, queue: Card[], currentStudyMode: StudyMode) => {
@@ -254,6 +273,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
     setIsTypingCorrect(false);
     setIsTypingExactTone(false);
     setShowPinyinHint(false);
+    setShowPinyinPromptClue(false);
 
     if (effMode === 'pinyin_to_hanzi') {
       setActiveSheet('typing');
@@ -469,11 +489,21 @@ export const StudySession: React.FC<StudySessionProps> = ({
     advanceToNextCard();
   };
 
-  // IME candidates for current card
-  const imeCandidates = useMemo(() => {
-    if (!currentCard) return [];
-    return generateImeCandidates(currentCard, cards);
-  }, [currentCard, cards]);
+  // Play audio sample for Pinyin typing with custom speed
+  const handlePlayAudioSample = async (customRate?: number) => {
+    if (!currentCard?.hanzi || isSpeakingRef.current) return;
+    const rate = customRate !== undefined ? customRate : pinyinAudioSpeed;
+    isSpeakingRef.current = true;
+    setIsPlayingStandardAudio(true);
+    try {
+      await speechService.speak(currentCard.hanzi, rate);
+    } finally {
+      setTimeout(() => {
+        isSpeakingRef.current = false;
+        setIsPlayingStandardAudio(false);
+      }, 300);
+    }
+  };
 
   // Autofocus typing input on desktop when Sheet 3 is active
   useEffect(() => {
@@ -506,54 +536,23 @@ export const StudySession: React.FC<StudySessionProps> = ({
         colors: ['#4f46e5', '#10b981', '#f59e0b', '#b91c1c'],
       });
 
-      // Play native pronunciation
+      // Play native pronunciation to reinforce memory
       handlePlayAudio(currentCard.hanzi);
 
       // Auto record SM-2 review rating (4: Rất dễ nếu chuẩn cả dấu, 3: Tốt nếu không dấu)
       const rating = result.isExactToneMatch ? 4 : 3;
       onRecordReview(currentCard, rating, 'pinyin_typing');
 
-      // Auto advance countdown (1.2s)
+      // Auto advance countdown (1.5s)
       setAutoAdvanceCountdown(1);
       autoAdvanceTimerRef.current = setTimeout(() => {
         setAutoAdvanceCountdown(null);
         advanceToNextCard();
-      }, 1200);
+      }, 1500);
     } else {
       setIsTypingShake(true);
       setTimeout(() => setIsTypingShake(false), 450);
       setIsTypingSubmitted(true);
-    }
-  };
-
-  // Select IME Hanzi Candidate
-  const handleSelectImeCandidate = (candidate: ImeCandidate) => {
-    if (!currentCard || autoAdvanceCountdown !== null || isTypingCorrect) return;
-    if (candidate.isCorrect) {
-      setTypingInput(currentCard.pinyin);
-      setIsTypingCorrect(true);
-      setIsTypingExactTone(true);
-      setIsTypingSubmitted(true);
-      setIsFlipped(true);
-
-      confetti({
-        particleCount: 70,
-        spread: 60,
-        origin: { y: 0.65 },
-        colors: ['#10b981', '#3b82f6', '#f59e0b'],
-      });
-
-      handlePlayAudio(currentCard.hanzi);
-      onRecordReview(currentCard, 4, 'pinyin_typing');
-
-      setAutoAdvanceCountdown(1);
-      autoAdvanceTimerRef.current = setTimeout(() => {
-        setAutoAdvanceCountdown(null);
-        advanceToNextCard();
-      }, 1200);
-    } else {
-      setIsTypingShake(true);
-      setTimeout(() => setIsTypingShake(false), 450);
     }
   };
 
@@ -851,16 +850,6 @@ export const StudySession: React.FC<StudySessionProps> = ({
         return;
       }
 
-      // If activeSheet is 'typing' and card not yet correct, 1-4 can select IME candidate
-      if (activeSheet === 'typing' && !isTypingCorrect && !isFlipped && imeCandidates.length > 0) {
-        const num = parseInt(e.key, 10);
-        if (num >= 1 && num <= imeCandidates.length) {
-          e.preventDefault();
-          handleSelectImeCandidate(imeCandidates[num - 1]);
-          return;
-        }
-      }
-
       if (e.code === 'Space') {
         e.preventDefault();
         if (activeSheet === 'typing' && !isTypingCorrect) {
@@ -877,13 +866,17 @@ export const StudySession: React.FC<StudySessionProps> = ({
       } else if (e.key === '4') {
         handleRate(4);
       } else if (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'v') {
-        handlePlayAudio();
+        if (activeSheet === 'typing') {
+          handlePlayAudioSample();
+        } else {
+          handlePlayAudio();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, isFlipped, currentCard, studyQueue, activeSheet, isTypingCorrect, imeCandidates, typingInput]);
+  }, [currentIndex, isFlipped, currentCard, studyQueue, activeSheet, isTypingCorrect, typingInput, pinyinAudioSpeed]);
 
   // Restart completed session
   const handleRestart = () => {
@@ -1035,7 +1028,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
               className="text-xs font-bold text-stone-900 bg-stone-50 border border-stone-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-red-600"
             >
               <option value="vietnamese_to_writing">✍️ Nhìn Nghĩa TV → Viết Hán Tự</option>
-              <option value="pinyin_to_hanzi">⌨️ Gõ Pinyin → Chữ Hán (Luyện gõ bàn phím)</option>
+              <option value="pinyin_to_hanzi">⌨️ Luyện Gõ Pinyin (Nghe âm / Xem chữ → Tự Gõ)</option>
               <option value="audio_to_writing">🎧 Nghe Âm Đọc → Viết Hán Tự (Ẩn nghĩa)</option>
               <option value="hanzi_to_meaning">🗣️ Nhớ Nghĩa & Đọc (Hán → Nghĩa)</option>
               <option value="random">🔀 Toàn Diện (Ngẫu Nhiên Luân Phiên)</option>
@@ -1240,7 +1233,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                   }`}
                 >
                   <Keyboard className="w-3.5 h-3.5 text-indigo-700" />
-                  <span>⌨️ Sheet 3: Luyện Gõ</span>
+                  <span>⌨️ Sheet 3: Luyện Gõ Pinyin</span>
                 </button>
               </div>
 
@@ -1252,7 +1245,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     Mục tiêu: {currentEffectiveMode === 'vietnamese_to_writing'
                       ? '✍️ Nhìn nghĩa TV → Viết'
                       : currentEffectiveMode === 'pinyin_to_hanzi'
-                      ? '⌨️ Gõ Pinyin → Chữ Hán'
+                      ? '⌨️ Luyện Gõ Pinyin'
                       : currentEffectiveMode === 'hanzi_to_meaning'
                       ? '🗣️ Nhớ nghĩa & Luyện Đọc'
                       : '🎧 Nghe âm → Viết (Ẩn nghĩa)'}
@@ -2016,62 +2009,187 @@ export const StudySession: React.FC<StudySessionProps> = ({
           )}
 
           {/* =========================================================================
-              SHEET 3: LUYỆN GÕ PINYIN (Pinyin Typing & IME Simulator)
+              SHEET 3: LUYỆN GÕ PINYIN (Nhìn Chữ Hán / Nghĩa TV & Nghe Âm Mẫu → Tự Gõ Pinyin)
              ========================================================================= */}
           {activeSheet === 'typing' && (
             <div className="space-y-4 animate-in fade-in">
-              {/* PROMPT BOX: Nghĩa Tiếng Việt & Gợi ý ngữ cảnh & Nghe âm */}
-              <div className="p-4 sm:p-5 bg-gradient-to-b from-indigo-50/60 to-white rounded-2xl border border-indigo-100/90 text-center space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold text-indigo-900 bg-indigo-100/80 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                    ⌨️ Hãy gõ Pinyin của từ này:
+              {/* PROMPT PRESENTATION SWITCHER (Chỉ hiển thị Chữ Hán hoặc Chỉ hiển thị Nghĩa TV) */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 bg-stone-100 rounded-2xl border border-stone-200">
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-bold text-stone-600 px-2 hidden sm:inline">
+                    Đề bài:
                   </span>
                   <button
                     type="button"
-                    onClick={() => handlePlayAudio(currentCard.hanzi)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      isPlayingStandardAudio
-                        ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-300'
-                        : 'bg-white text-indigo-900 border border-indigo-200 hover:bg-indigo-50 shadow-2xs'
+                    onClick={() => {
+                      setPinyinPromptMode('hanzi_only');
+                      try { localStorage.setItem('pinyin_prompt_mode', 'hanzi_only'); } catch {}
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      pinyinPromptMode === 'hanzi_only'
+                        ? 'bg-white text-stone-900 shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-900'
                     }`}
-                    title="Nghe phát âm chuẩn"
                   >
-                    <Volume2 className={`w-3.5 h-3.5 ${isPlayingStandardAudio ? 'animate-bounce' : ''}`} />
-                    <span className="hidden sm:inline">Phát âm</span>
+                    🇨🇳 Chỉ Chữ Hán
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinyinPromptMode('meaning_only');
+                      try { localStorage.setItem('pinyin_prompt_mode', 'meaning_only'); } catch {}
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      pinyinPromptMode === 'meaning_only'
+                        ? 'bg-white text-stone-900 shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    🇻🇳 Chỉ Nghĩa TV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinyinPromptMode('alternate');
+                      try { localStorage.setItem('pinyin_prompt_mode', 'alternate'); } catch {}
+                    }}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      pinyinPromptMode === 'alternate'
+                        ? 'bg-white text-stone-900 shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    🔀 Luân phiên
                   </button>
                 </div>
 
-                {/* Main Meaning */}
-                <div className="space-y-1">
-                  <h3 className="text-2xl sm:text-3xl font-extrabold text-stone-900 font-vietnamese tracking-tight">
-                    {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
-                  </h3>
-                  <div className="flex items-center justify-center flex-wrap gap-2 text-xs text-stone-500 font-medium pt-0.5">
-                    <span>
-                      Mục tiêu: <strong className="text-indigo-800">{currentCard.hanzi.length} chữ Hán</strong>
+                {/* Badge showing current question format */}
+                <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                  {currentEffectivePinyinPrompt === 'hanzi_only'
+                    ? '👀 Nhìn Chữ Hán → Tự Gõ Pinyin'
+                    : '👀 Nhìn Nghĩa TV → Tự Gõ Pinyin'}
+                </span>
+              </div>
+
+              {/* PROMPT CARD: CHỈ HIỂN THỊ CHỮ HÁN HOẶC CHỈ HIỂN THỊ NGHĨA TIẾNG VIỆT */}
+              <div className="p-5 sm:p-6 bg-gradient-to-b from-indigo-50/60 to-white rounded-2xl border border-indigo-100/90 text-center space-y-3 shadow-2xs">
+                {currentEffectivePinyinPrompt === 'hanzi_only' ? (
+                  // DẠNG 1: CHỈ HIỂN THỊ CHỮ HÁN
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-indigo-900 bg-indigo-100/90 px-3 py-1 rounded-full uppercase tracking-wider inline-block">
+                      🇨🇳 Nhìn chữ Hán để gõ Pinyin:
                     </span>
-                    {showPinyinHint && (
-                      <span className="font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md font-bold text-xs border border-indigo-200">
-                        Gợi ý: {currentCard.pinyin.split(' ').map((w) => (w[0] || '') + '...').join(' ')}
-                      </span>
+                    <div className="py-2">
+                      <h2 className="text-5xl sm:text-6xl font-extrabold font-hanzi text-stone-900 tracking-wider">
+                        {currentCard.hanzi}
+                      </h2>
+                    </div>
+                    <p className="text-xs text-stone-500 font-medium">
+                      Mục tiêu: Nhập Pinyin của <strong className="text-indigo-800">{currentCard.hanzi.length} chữ Hán</strong> trên
+                    </p>
+
+                    {/* Optional Clue: Show Vietnamese meaning if forgotten */}
+                    {!isTypingCorrect && !isFlipped && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowPinyinPromptClue((prev) => !prev)}
+                          className="text-[11px] font-semibold text-stone-500 hover:text-stone-800 underline inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+                          <span>{showPinyinPromptClue ? 'Ẩn nghĩa tiếng Việt' : '💡 Quên nghĩa? Xem gợi ý nghĩa TV'}</span>
+                        </button>
+                        {showPinyinPromptClue && (
+                          <div className="mt-2 p-2.5 bg-amber-50/90 rounded-xl border border-amber-200 inline-block text-xs font-bold text-amber-900 animate-in fade-in">
+                            Nghĩa: {currentCard.meaning}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-
-                {/* Context Clue if exists */}
-                {currentCard.contextClue && (
-                  <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 space-y-1 text-left sm:text-center">
-                    <span className="text-[11px] font-bold text-amber-900 block">
-                      🧩 Gợi ý ngữ cảnh / Câu đố:
+                ) : (
+                  // DẠNG 2: CHỈ HIỂN THỊ NGHĨA TIẾNG VIỆT
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-indigo-900 bg-indigo-100/90 px-3 py-1 rounded-full uppercase tracking-wider inline-block">
+                      🇻🇳 Nhìn nghĩa tiếng Việt để gõ Pinyin:
                     </span>
-                    <p className="text-xs sm:text-sm font-medium text-stone-800 italic font-vietnamese">
-                      "{currentCard.contextClue}"
+                    <div className="py-2">
+                      <h2 className="text-2xl sm:text-3xl font-extrabold font-vietnamese text-stone-900 tracking-tight">
+                        {currentCard.meaning ? currentCard.meaning.normalize('NFC') : ''}
+                      </h2>
+                    </div>
+                    <p className="text-xs text-stone-500 font-medium">
+                      Mục tiêu: Từ này có <strong className="text-indigo-800">{currentCard.hanzi.length} chữ Hán</strong>
                     </p>
+
+                    {/* Optional Clue: Show Hanzi character if forgotten */}
+                    {!isTypingCorrect && !isFlipped && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowPinyinPromptClue((prev) => !prev)}
+                          className="text-[11px] font-semibold text-stone-500 hover:text-stone-800 underline inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+                          <span>{showPinyinPromptClue ? 'Ẩn gợi ý chữ Hán' : '💡 Quên từ? Xem gợi ý mặt chữ'}</span>
+                        </button>
+                        {showPinyinPromptClue && (
+                          <div className="mt-2 p-2.5 bg-indigo-50/90 rounded-xl border border-indigo-200 inline-block text-lg font-bold font-hanzi text-indigo-950 animate-in fade-in">
+                            Chữ Hán: {currentCard.hanzi}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Context clue if exists */}
+                {currentCard.contextClue && (
+                  <div className="p-2.5 bg-amber-50/70 rounded-xl border border-amber-200/70 text-xs text-stone-700 italic">
+                    "{currentCard.contextClue}"
                   </div>
                 )}
               </div>
 
-              {/* INPUT SECTION & IME CANDIDATES */}
+              {/* NÚT NGHE ÂM MẪU ĐỂ TỰ GÕ (YÊU CẦU ĐẶC BIỆT CỦA NGƯỜI DÙNG) */}
+              <div className="p-3.5 sm:p-4 bg-indigo-50/80 rounded-2xl border-2 border-indigo-100/90 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePlayAudioSample()}
+                    className={`inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer shadow-xs active:scale-95 ${
+                      isPlayingStandardAudio
+                        ? 'bg-indigo-600 text-white ring-4 ring-indigo-200 shadow-md scale-102'
+                        : 'bg-white hover:bg-indigo-100/70 text-indigo-800 border border-indigo-300'
+                    }`}
+                    title="Nghe phát âm chuẩn người bản xứ để tự gõ Pinyin"
+                  >
+                    <Volume2 className={`w-4 h-4 sm:w-5 sm:h-5 ${isPlayingStandardAudio ? 'animate-bounce text-white' : 'text-indigo-600'}`} />
+                    <span>🔊 Nghe âm mẫu</span>
+                    {isPlayingStandardAudio ? (
+                      <span className="text-[11px] bg-indigo-700 text-white px-2 py-0.5 rounded-full font-mono">Đang đọc...</span>
+                    ) : (
+                      <span className="text-[11px] text-indigo-600 font-medium hidden sm:inline">(Nghe rồi tự gõ)</span>
+                    )}
+                  </button>
+
+                  {/* Audio speed button (1.0x / 0.75x) */}
+                  <button
+                    type="button"
+                    onClick={() => setPinyinAudioSpeed((prev) => (prev === 1.0 ? 0.75 : 1.0))}
+                    className="px-2.5 py-2.5 rounded-xl text-xs font-bold border border-indigo-200 bg-white hover:bg-indigo-100/60 text-indigo-700 shadow-2xs cursor-pointer"
+                    title="Tốc độ đọc phát âm mẫu (1.0x Chuẩn / 0.75x Chậm để nghe kỹ âm)"
+                  >
+                    {pinyinAudioSpeed === 1.0 ? '1.0x' : '0.75x (Chậm)'}
+                  </button>
+                </div>
+
+                <span className="text-[11px] sm:text-xs text-stone-600 text-center sm:text-right font-medium">
+                  🎧 Bấm nghe âm mẫu bất kỳ lúc nào để bắt chước & tự gõ Pinyin
+                </span>
+              </div>
+
+              {/* INPUT SECTION & VERIFICATION */}
               <div
                 className={`p-4 sm:p-5 bg-white rounded-2xl border-2 transition-all space-y-4 shadow-sm ${
                   isTypingCorrect
@@ -2085,7 +2203,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs text-stone-500">
                     <label htmlFor="pinyin-typing-input" className="font-semibold text-stone-700">
-                      Nhập Pinyin (gõ không dấu, có số hoặc có dấu):
+                      Nhập Pinyin tương ứng (không dấu, có số hoặc có dấu):
                     </label>
                     <span className="text-[11px] text-stone-400 hidden sm:inline">Nhấn Enter để kiểm tra</span>
                   </div>
@@ -2106,7 +2224,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                           handleCheckPinyin();
                         }
                       }}
-                      placeholder="Ví dụ: nihao hoặc ni3hao3..."
+                      placeholder="Ví dụ: nihao hoặc ni3hao3 hoặc nǐ hǎo..."
                       autoCapitalize="none"
                       autoCorrect="off"
                       spellCheck={false}
@@ -2157,48 +2275,27 @@ export const StudySession: React.FC<StudySessionProps> = ({
                     </div>
                   </div>
 
+                  {/* Feedback when wrong */}
                   {isTypingSubmitted && !isTypingCorrect && (
-                    <p className="text-xs text-red-600 font-medium animate-in fade-in flex items-center gap-1 pt-0.5">
-                      <span>Pinyin chưa chính xác. Bạn có thể thử lại, bấm chữ cái gợi ý hoặc xem đáp án bên dưới!</span>
-                    </p>
+                    <div className="p-2.5 bg-red-50 rounded-xl border border-red-200 text-xs text-red-700 animate-in fade-in space-y-1">
+                      <p className="font-bold flex items-center gap-1">
+                        <span>❌ Pinyin chưa chính xác!</span>
+                      </p>
+                      <p className="text-[11px] text-red-600">
+                        Bạn có thể bấm <strong>"🔊 Nghe âm mẫu"</strong> ở trên để nghe lại và gõ lại, bấm <strong>"Gợi ý chữ cái"</strong> hoặc <strong>"Xem đáp án"</strong> bên dưới.
+                      </p>
+                    </div>
                   )}
-                </div>
 
-                {/* IME CANDIDATE SELECTION BAR (Mô phỏng bộ gõ Sogou / Gboard / Apple) */}
-                <div className="space-y-1.5 pt-1 border-t border-stone-100">
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-stone-500">
-                    <span className="flex items-center gap-1 text-indigo-900">
-                      <Keyboard className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Thanh gợi ý bộ gõ IME (chọn chữ Hán tương ứng):</span>
-                    </span>
-                    <span className="text-stone-400 hidden sm:inline">Bấm phím 1-4 trên bàn phím</span>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {imeCandidates.map((cand, idx) => (
-                      <button
-                        key={`${cand.hanzi}-${idx}`}
-                        type="button"
-                        onClick={() => handleSelectImeCandidate(cand)}
-                        disabled={isTypingCorrect}
-                        className={`p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer active:scale-95 shadow-2xs ${
-                          isTypingCorrect && cand.isCorrect
-                            ? 'bg-emerald-100 border-emerald-400 text-emerald-950 ring-2 ring-emerald-300 font-bold scale-102'
-                            : 'bg-stone-50 hover:bg-indigo-50 border-stone-200 hover:border-indigo-300 text-stone-800'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-xs font-bold text-stone-500 bg-stone-200/90 w-4 h-4 rounded-full flex items-center justify-center">
-                            {idx + 1}
-                          </span>
-                          <span className="font-hanzi font-bold text-xl text-stone-900">{cand.hanzi}</span>
-                        </div>
-                        {cand.pinyin && (
-                          <span className="text-[10px] font-mono text-stone-400">{cand.pinyin}</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Initial hint preview */}
+                  {showPinyinHint && !isTypingCorrect && (
+                    <div className="p-2 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 animate-in fade-in flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        Gợi ý chữ cái đầu: <strong className="font-mono text-sm">{formatPinyinInitialHint(currentCard.pinyin)}</strong>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* MOBILE QUICK TONE ACCENT BAR */}
@@ -2243,7 +2340,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
 
                 {/* RESULT & REVEALED DETAILS IF CORRECT OR FLIPPED */}
                 {(isTypingCorrect || isFlipped) && (
-                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3 animate-in fade-in">
+                  <div className="p-4 sm:p-5 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3 animate-in fade-in">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-5 h-5 text-emerald-600" />
@@ -2251,7 +2348,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                           {isTypingCorrect
                             ? isTypingExactTone
                               ? 'Xuất sắc! Phát âm và thanh điệu hoàn toàn chuẩn xác.'
-                              : 'Chính xác! Đã khớp chữ Hán mục tiêu.'
+                              : 'Chính xác! Đã khớp Pinyin mục tiêu.'
                             : 'Đáp án chuẩn:'}
                         </span>
                       </div>
@@ -2262,12 +2359,15 @@ export const StudySession: React.FC<StudySessionProps> = ({
                       )}
                     </div>
 
-                    <div className="text-center space-y-1">
-                      <h2 className="text-4xl font-extrabold font-hanzi text-stone-900 tracking-wider">
+                    <div className="text-center space-y-1.5 py-1">
+                      <h2 className="text-4xl sm:text-5xl font-extrabold font-hanzi text-stone-900 tracking-wider">
                         {currentCard.hanzi}
                       </h2>
-                      <p className="text-base font-bold font-mono text-emerald-800 tracking-widest">
+                      <p className="text-lg sm:text-xl font-bold font-mono text-emerald-800 tracking-widest">
                         {currentCard.pinyin}
+                      </p>
+                      <p className="text-sm font-semibold text-stone-700 font-vietnamese">
+                        {currentCard.meaning}
                       </p>
                     </div>
 
@@ -2308,7 +2408,7 @@ export const StudySession: React.FC<StudySessionProps> = ({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors cursor-pointer"
                         >
                           <Lightbulb className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{showPinyinHint ? 'Ẩn gợi ý' : 'Gợi ý chữ cái'}</span>
+                          <span>{showPinyinHint ? 'Ẩn gợi ý' : 'Gợi ý chữ cái đầu'}</span>
                         </button>
 
                         <button
