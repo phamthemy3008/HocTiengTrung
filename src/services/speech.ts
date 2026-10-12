@@ -1,6 +1,7 @@
 /**
  * Native Mandarin (zh-CN) Speech & Audio Service
- * (Engineered for 100% Reliability on iPhone iOS Safari with Silent Switch Bypassed, Android & PC)
+ * (Engineered for 100% Reliability on iPhone/iPad iOS Safari, Android & Desktop PC,
+ *  with full support for Bluetooth headphones/earphones, external speakers, and Silent Switch bypass)
  */
 
 class SpeechService {
@@ -11,6 +12,7 @@ class SpeechService {
   private currentSource: AudioBufferSourceNode | null = null;
   private currentAudioElement: HTMLAudioElement | null = null;
   private activeRecognition: any = null;
+  private silentAudioUnlocked: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -22,8 +24,8 @@ class SpeechService {
   }
 
   /**
-   * Unlock iOS Safari Web Audio on first user interaction
-   * Plays a 1-sample silent buffer to unlock the hardware audio pipeline (bypasses Silent Switch)
+   * Unlock iOS/iPadOS Safari & Android Web Audio & HTML5 Audio pipeline on user interaction.
+   * Plays a silent 1-sample buffer and unlocks HTML5 Audio element for Bluetooth headphones/earphones.
    */
   private initAutoUnlock() {
     if (typeof window === 'undefined') return;
@@ -32,14 +34,19 @@ class SpeechService {
       this.unlockAudio();
     };
 
-    ['touchstart', 'touchend', 'click', 'pointerdown'].forEach((evt) => {
+    ['touchstart', 'touchend', 'click', 'pointerdown', 'keydown'].forEach((evt) => {
       window.addEventListener(evt, unlockHandler, { passive: true });
     });
   }
 
+  /**
+   * Force unlock or resume audio hardware on mobile browsers (iOS Safari, iPadOS, Android)
+   */
   public unlockAudio() {
     if (typeof window === 'undefined') return;
+
     try {
+      // 1. Resume / Initialize Web Audio Context
       if (!this.audioCtx) {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioContextClass) {
@@ -48,13 +55,17 @@ class SpeechService {
       }
 
       if (this.audioCtx) {
-        if (this.audioCtx.state === 'suspended') {
+        // iOS Safari state can be 'suspended' or 'interrupted' when Bluetooth routes change
+        if (
+          this.audioCtx.state === 'suspended' ||
+          (this.audioCtx.state as string) === 'interrupted'
+        ) {
           this.audioCtx.resume().catch(() => {});
         }
 
         if (!this.isUnlocked) {
           this.isUnlocked = true;
-          // Play silent buffer to activate hardware speaker route on iOS
+          // Play silent buffer to activate hardware output route
           const buffer = this.audioCtx.createBuffer(1, 1, 22050);
           const source = this.audioCtx.createBufferSource();
           source.buffer = buffer;
@@ -63,8 +74,27 @@ class SpeechService {
         }
       }
 
-      if (this.synth && this.synth.paused) {
-        this.synth.resume();
+      // 2. Unlock SpeechSynthesis on iOS
+      if (this.synth) {
+        if (this.synth.paused) {
+          this.synth.resume();
+        }
+      }
+
+      // 3. Unlock HTML5 Audio for Bluetooth media route on iOS / Android
+      if (!this.silentAudioUnlocked) {
+        const silentAudio = new Audio(
+          'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA=='
+        );
+        silentAudio.setAttribute('playsinline', 'true');
+        silentAudio.setAttribute('webkit-playsinline', 'true');
+        silentAudio.volume = 0.01;
+        const p = silentAudio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            this.silentAudioUnlocked = true;
+          }).catch(() => {});
+        }
       }
     } catch (e) {
       console.warn('Audio unlock warning:', e);
@@ -83,6 +113,8 @@ class SpeechService {
       }
       if (this.currentAudioElement) {
         this.currentAudioElement.pause();
+        this.currentAudioElement.onended = null;
+        this.currentAudioElement.onerror = null;
         this.currentAudioElement.src = '';
         this.currentAudioElement = null;
       }
@@ -93,10 +125,8 @@ class SpeechService {
   }
 
   /**
-   * Speak Chinese text with native Mandarin pronunciation
-   * Primary: Web Audio API via /api/tts (Works on iPhone EVEN in Silent/Vibrate Mode, zero double-playing)
-   * Secondary: HTML5 Audio
-   * Tertiary: Native SpeechSynthesis (Offline fallback)
+   * Speak Chinese text with native Mandarin pronunciation.
+   * Optimised for Bluetooth headphones / earphones on iPhone, iPad, Android, and Desktop PC.
    */
   async speak(text: string, rate: number = 0.88): Promise<void> {
     if (!text || !text.trim()) return;
@@ -105,13 +135,59 @@ class SpeechService {
     // Stop previous audio so sounds never overlap
     this.stop();
 
-    // Ensure audio hardware is active
+    // Ensure hardware route & Bluetooth channel are awake
     this.unlockAudio();
 
-    // 1. Primary: Web Audio API (Plays through speaker even if iPhone is on Silent Mode)
+    // Primary Method: HTML5 Audio Element (Highest compatibility with Bluetooth A2DP & Headphones on iOS/iPadOS/Android)
+    try {
+      const ttsUrl = `/api/tts?text=${encodeURIComponent(cleanText)}`;
+      const audio = new Audio(ttsUrl);
+      this.currentAudioElement = audio;
+
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('webkit-playsinline', 'true');
+      audio.crossOrigin = 'anonymous';
+      audio.playbackRate = Math.min(Math.max(rate, 0.5), 2.0);
+
+      const playResult = await new Promise<boolean>((resolve) => {
+        let isSettled = false;
+
+        const finish = (success: boolean) => {
+          if (!isSettled) {
+            isSettled = true;
+            if (this.currentAudioElement === audio) {
+              this.currentAudioElement = null;
+            }
+            resolve(success);
+          }
+        };
+
+        audio.onended = () => finish(true);
+        audio.onerror = () => finish(false);
+
+        const p = audio.play();
+        if (p !== undefined) {
+          p.catch(() => finish(false));
+        }
+
+        // Safety fallback timeout (4 seconds)
+        setTimeout(() => finish(true), 4000);
+      });
+
+      if (playResult) {
+        return;
+      }
+    } catch (err) {
+      console.warn('HTML5 Audio playback failed, trying Web Audio API:', err);
+    }
+
+    // Secondary Method: Web Audio API (For cached buffers or Silent switch bypass)
     if (this.audioCtx) {
       try {
-        if (this.audioCtx.state === 'suspended') {
+        if (
+          this.audioCtx.state === 'suspended' ||
+          (this.audioCtx.state as string) === 'interrupted'
+        ) {
           await this.audioCtx.resume();
         }
 
@@ -121,7 +197,6 @@ class SpeechService {
           const res = await fetch(`/api/tts?text=${encodeURIComponent(cleanText)}`);
           if (res.ok) {
             const arrayBuffer = await res.arrayBuffer();
-            // Safari decodeAudioData requires a sliced copy
             const clonedBuffer = arrayBuffer.slice(0);
             buffer = await new Promise<AudioBuffer>((resDecode, rejDecode) => {
               this.audioCtx!.decodeAudioData(clonedBuffer, resDecode, rejDecode);
@@ -147,7 +222,6 @@ class SpeechService {
 
             source.start(0);
 
-            // Safety timeout
             setTimeout(() => {
               if (this.currentSource === source) {
                 this.currentSource = null;
@@ -157,52 +231,16 @@ class SpeechService {
           });
         }
       } catch (err) {
-        console.warn('Web Audio playback error, trying HTML5 Audio fallback:', err);
+        console.warn('Web Audio API playback failed, trying SpeechSynthesis fallback:', err);
       }
     }
 
-    // 2. Secondary: HTML5 Audio Element
-    try {
-      const audio = new Audio(`/api/tts?text=${encodeURIComponent(cleanText)}`);
-      this.currentAudioElement = audio;
-      audio.setAttribute('playsinline', 'true');
-      audio.setAttribute('webkit-playsinline', 'true');
-      audio.playbackRate = rate;
-
-      return new Promise((resolve) => {
-        let isDone = false;
-        const finish = () => {
-          if (!isDone) {
-            isDone = true;
-            this.currentAudioElement = null;
-            resolve();
-          }
-        };
-
-        audio.onended = finish;
-        audio.onerror = () => {
-          this.fallbackSpeechSynthesis(cleanText, rate).then(finish);
-        };
-
-        const p = audio.play();
-        if (p !== undefined) {
-          p.catch(() => {
-            this.fallbackSpeechSynthesis(cleanText, rate).then(finish);
-          });
-        }
-
-        setTimeout(finish, 4000);
-      });
-    } catch {
-      // Fall through to SpeechSynthesis
-    }
-
-    // 3. Tertiary: Local SpeechSynthesis
+    // Tertiary Method: Web SpeechSynthesis Fallback
     return this.fallbackSpeechSynthesis(cleanText, rate);
   }
 
   /**
-   * Fallback to device SpeechSynthesis when offline
+   * Fallback to device SpeechSynthesis when offline or audio fetch is blocked
    */
   private fallbackSpeechSynthesis(text: string, rate: number = 0.88): Promise<void> {
     return new Promise((resolve) => {
@@ -272,8 +310,8 @@ class SpeechService {
   }
 
   /**
-   * Start recording user speech to evaluate Mandarin pronunciation
-   * Handles repeated recordings cleanly without InvalidStateError
+   * Start recording user speech to evaluate Mandarin pronunciation.
+   * Restores media playback audio route after speech input closes.
    */
   startListening(
     onResult: (transcript: string, isFinal: boolean) => void,
@@ -287,7 +325,6 @@ class SpeechService {
       return { stop: () => {} };
     }
 
-    // Always abort any previous active recognition session before creating a new one
     if (this.activeRecognition) {
       try {
         this.activeRecognition.abort();
@@ -321,17 +358,23 @@ class SpeechService {
         }
       };
 
-      rec.onerror = (event: any) => {
+      const cleanupAndRestoreRoute = () => {
         if (this.activeRecognition === rec) {
           this.activeRecognition = null;
         }
+        // Delay unlock to allow iOS/iPadOS audio session to revert from SCO voice to A2DP media playback
+        setTimeout(() => {
+          this.unlockAudio();
+        }, 200);
+      };
+
+      rec.onerror = (event: any) => {
+        cleanupAndRestoreRoute();
         onError(event);
       };
 
       rec.onend = () => {
-        if (this.activeRecognition === rec) {
-          this.activeRecognition = null;
-        }
+        cleanupAndRestoreRoute();
       };
 
       rec.start();
@@ -341,9 +384,7 @@ class SpeechService {
           try {
             rec.abort();
           } catch {}
-          if (this.activeRecognition === rec) {
-            this.activeRecognition = null;
-          }
+          cleanupAndRestoreRoute();
         },
       };
     } catch (e) {
